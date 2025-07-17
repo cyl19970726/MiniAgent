@@ -261,7 +261,7 @@ export class CoreToolScheduler implements IToolScheduler {
    */
   private async validateSingleToolCall(request: IToolCallRequestInfo): Promise<void> {
     // Create validating tool call - will populate tool in try block
-    let toolCall: IValidatingToolCall;
+    let toolCall: IValidatingToolCall | undefined;
 
     try {
       // Resolve tool first

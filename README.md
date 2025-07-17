@@ -63,6 +63,25 @@ for await (const event of agent.process('Hello', 'session-1', abortController.si
 }
 ```
 
+## Running Examples
+
+### Demo Example (No API Key Required)
+```bash
+npm run demo
+```
+This runs a complete demonstration of the framework using mocked responses, showcasing:
+- GeminiChat with mock responses
+- CoreToolScheduler with a calculator tool
+- TokenTracker with usage monitoring
+- AgentEventSystem with real-time events
+
+### Basic Example (Requires API Key)
+```bash
+export GEMINI_API_KEY="your-api-key-here"
+npm run example
+```
+This runs a real example using the Gemini API.
+
 ## Testing
 
 ```bash
