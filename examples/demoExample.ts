@@ -12,8 +12,9 @@ import {
   AgentEventFactory,
   AgentEventEmitter,
   IAgentConfig,
+  BaseTool,
   ITool,
-  IToolResult,
+  ToolResult,
   ToolCallConfirmationDetails,
   AgentEventType,
   AgentEvent,
@@ -23,7 +24,10 @@ import {
   ChatMessage,
   LLMResponse,
   ConversationContent,
+  ToolCallRequest,
 } from '../src/index.js';
+
+import { Type } from '@google/genai';
 
 /**
  * Mock Chat implementation for demonstration
@@ -80,7 +84,8 @@ class MockGeminiChat extends GeminiChat {
       };
 
       // Check if this should include a function call
-      if (message.content.includes('Calculate') || message.content.includes('计算')) {
+      const contentString = typeof message.content === 'string' ? message.content : '';
+      if (contentString.includes('Calculate') || contentString.includes('计算')) {
         // Add function call to response
         response.content.parts.push({
           type: 'function_call',
@@ -98,57 +103,58 @@ class MockGeminiChat extends GeminiChat {
 }
 
 /**
- * Simple Calculator Tool for demonstration
+ * Simple Calculator Tool for demonstration using BaseTool
  */
-class DemoCalculatorTool implements ITool {
-  readonly name = 'calculator';
-  readonly displayName = 'Calculator';
-  readonly description = 'Perform basic mathematical calculations';
-  readonly schema = {
-    name: 'calculator',
-    description: 'Perform basic mathematical calculations',
-    parameters: {
-      type: 'object',
-      properties: {
-        expression: {
-          type: 'string',
-          description: 'Mathematical expression to evaluate'
-        }
+class DemoCalculatorTool extends BaseTool<{ expression: string }> {
+  constructor() {
+    super(
+      'calculator',
+      'Calculator',
+      'Perform basic mathematical calculations',
+      {
+        type: Type.OBJECT,
+        properties: {
+          expression: {
+            type: Type.STRING,
+            description: 'Mathematical expression to evaluate'
+          }
+        },
+        required: ['expression']
       },
-      required: ['expression']
-    }
-  };
-  readonly isOutputMarkdown = false;
-  readonly canUpdateOutput = false;
+      false, // isOutputMarkdown
+      true   // canUpdateOutput
+    );
+  }
 
-  validateToolParams(params: any): string | null {
-    if (!params.expression) return 'Expression is required';
+  validateToolParams(params: { expression: string }): string | null {
+    if (!params.expression || typeof params.expression !== 'string') {
+      return 'Expression is required and must be a string';
+    }
     return null;
   }
 
-  getDescription(params: any): string {
+  getDescription(params: { expression: string }): string {
     return `Calculate: ${params.expression}`;
   }
 
-  async shouldConfirmExecute(): Promise<false> {
-    return false;
-  }
-
   async execute(
-    params: any,
+    params: { expression: string },
     abortSignal: AbortSignal,
     outputUpdateHandler?: (output: string) => void
-  ): Promise<IToolResult> {
+  ): Promise<ToolResult> {
     const { expression } = params;
     
     if (outputUpdateHandler) {
-      outputUpdateHandler(`🔢 Calculating: ${expression}`);
+      outputUpdateHandler(this.formatProgress('Calculating', expression, '🔢'));
     }
 
     // Simulate calculation delay
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     try {
+      // Check for cancellation
+      this.checkAbortSignal(abortSignal, 'Demo calculator execution');
+
       // For demo purposes, we'll handle the specific example
       let result: number;
       if (expression === '15 + 27 * 3') {
@@ -158,15 +164,16 @@ class DemoCalculatorTool implements ITool {
         result = eval(expression.replace(/[^0-9+\-*/().]/g, ''));
       }
 
-      return {
-        llmContent: `${expression} = ${result}`,
-        returnDisplay: `🔢 ${expression} = ${result}`,
-      };
+      return this.createResult(
+        `${expression} = ${result}`,
+        `🔢 ${expression} = ${result}`,
+        `Demo calculation: ${result}`
+      );
     } catch (error) {
-      return {
-        llmContent: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        returnDisplay: `❌ Calculation error`,
-      };
+      return this.createErrorResult(
+        error instanceof Error ? error : new Error(String(error)),
+        'Demo calculator execution'
+      );
     }
   }
 }
@@ -251,13 +258,14 @@ class DemoAgent {
             console.log(`🔧 Tool Call: ${part.functionCall.name}`);
             console.log(`   Args: ${JSON.stringify(part.functionCall.args)}`);
             
-            yield eventFactory.createToolCallRequestEvent({
+            const toolCallRequest: ToolCallRequest = {
               callId: part.functionCall.id || 'unknown',
               name: part.functionCall.name,
               args: part.functionCall.args,
               isClientInitiated: false,
-              prompt_id: sessionId,
-            });
+              promptId: sessionId,
+            };
+            yield eventFactory.createToolCallRequestEvent(toolCallRequest);
             
             // Execute tool
             const toolRequest: IToolCallRequestInfo = {
@@ -265,7 +273,7 @@ class DemoAgent {
               name: part.functionCall.name,
               args: part.functionCall.args,
               isClientInitiated: false,
-              prompt_id: sessionId,
+              promptId: sessionId,
             };
             
             console.log('\n🔧 Executing tool...');
@@ -281,7 +289,16 @@ class DemoAgent {
             outputTokens: response.usage.outputTokens,
           });
           
-          yield eventFactory.createTokenUsageEvent(response.usage);
+          // Create proper ITokenUsage object for event
+          const tokenUsage: ITokenUsage = {
+            inputTokens: response.usage.inputTokens,
+            outputTokens: response.usage.outputTokens,
+            totalTokens: response.usage.totalTokens,
+            cumulativeTokens: response.usage.totalTokens, // For demo purposes
+            tokenLimit: 100000,
+            usagePercentage: (response.usage.totalTokens / 100000) * 100,
+          };
+          yield eventFactory.createTokenUsageEvent(tokenUsage);
         }
       }
       
@@ -349,13 +366,13 @@ async function main() {
           // Content logging is handled in the processDemo method
           break;
         case AgentEventType.ToolCallRequest:
-          console.log(`🔧 Event: Tool "${event.data.name}" requested`);
+          console.log(`🔧 Event: Tool "${(event.data as any).toolCall.name}" requested`);
           break;
         case AgentEventType.TokenUsage:
-          console.log(`📊 Event: Token usage updated (${event.data.totalTokens} tokens)`);
+          console.log(`📊 Event: Token usage updated (${(event.data as any).usage.totalTokens} tokens)`);
           break;
         case AgentEventType.Error:
-          console.error(`❌ Event: Error occurred - ${event.data.message}`);
+          console.error(`❌ Event: Error occurred - ${(event.data as any).message}`);
           break;
         default:
           console.log(`📡 Event: ${event.type}`);

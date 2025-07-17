@@ -104,6 +104,12 @@ export {
   AgentEventUtils,
 } from './agentEvent.js';
 
+// Base tool implementation
+export {
+  BaseTool,
+  SimpleTool,
+} from './baseTool.js';
+
 // ============================================================================
 // UTILITIES
 // ============================================================================

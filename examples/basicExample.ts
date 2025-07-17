@@ -17,8 +17,9 @@ import {
   AgentEventEmitter,
   IAgentConfig,
   IAgentStatus,
+  BaseTool,
   ITool,
-  IToolResult,
+  ToolResult,
   ToolCallConfirmationDetails,
   ToolConfirmationOutcome,
   AgentEventType,
@@ -28,79 +29,85 @@ import {
   ICompletedToolCall,
   ChatMessage,
   EventHandler,
+  ToolCallRequest,
 } from '../src/index.js';
+
+import { Type } from '@google/genai';
 
 /**
  * Simple Calculator Tool for demonstration
  */
-class CalculatorTool implements ITool {
-  readonly name = 'calculator';
-  readonly displayName = 'Calculator';
-  readonly description = 'Perform basic mathematical calculations';
-  readonly schema = {
-    name: 'calculator',
-    description: 'Perform basic mathematical calculations',
-    parameters: {
-      type: 'object',
-      properties: {
-        expression: {
-          type: 'string',
-          description: 'Mathematical expression to evaluate (e.g., "2 + 3 * 4")'
-        }
+class CalculatorTool extends BaseTool<{ expression: string }> {
+  constructor() {
+    super(
+      'calculator',
+      'Calculator',
+      'Perform basic mathematical calculations',
+      {
+        type: Type.OBJECT,
+        properties: {
+          expression: {
+            type: Type.STRING,
+            description: 'Mathematical expression to evaluate (e.g., "2 + 3 * 4")'
+          }
+        },
+        required: ['expression']
       },
-      required: ['expression']
-    }
-  };
-  readonly isOutputMarkdown = false;
-  readonly canUpdateOutput = false;
+      false, // isOutputMarkdown
+      true   // canUpdateOutput
+    );
+  }
 
-  validateToolParams(params: any): string | null {
+  validateToolParams(params: { expression: string }): string | null {
     if (!params.expression || typeof params.expression !== 'string') {
       return 'Expression is required and must be a string';
     }
+    
+    // Check for dangerous characters
+    if (!/^[0-9+\-*/().\s]+$/.test(params.expression)) {
+      return 'Expression contains invalid characters';
+    }
+    
     return null;
   }
 
-  getDescription(params: any): string {
+  getDescription(params: { expression: string }): string {
     return `Calculate: ${params.expression}`;
   }
 
-  async shouldConfirmExecute(
-    params: any,
-    abortSignal: AbortSignal
-  ): Promise<ToolCallConfirmationDetails | false> {
-    return false; // No confirmation needed
-  }
-
   async execute(
-    params: any,
+    params: { expression: string },
     abortSignal: AbortSignal,
     outputUpdateHandler?: (output: string) => void
-  ): Promise<IToolResult> {
+  ): Promise<ToolResult> {
     const { expression } = params;
     
     if (outputUpdateHandler) {
-      outputUpdateHandler(`🔢 Calculating: ${expression}`);
+      outputUpdateHandler(this.formatProgress('Calculating', expression, '🔢'));
     }
 
     try {
+      // Check for cancellation
+      this.checkAbortSignal(abortSignal, 'Calculator execution');
+
       // Simple safe evaluation (only allow basic math)
       const sanitized = expression.replace(/[^0-9+\-*/().\s]/g, '');
       const result = Function(`"use strict"; return (${sanitized})`)();
       
       if (typeof result !== 'number' || !isFinite(result)) {
-        throw new Error('Invalid result');
+        throw new Error('Invalid mathematical expression');
       }
 
-      return {
-        llmContent: `${expression} = ${result}`,
-        returnDisplay: `🔢 ${expression} = ${result}`,
-      };
+      return this.createResult(
+        `${expression} = ${result}`,
+        `🔢 ${expression} = ${result}`,
+        `Calculated: ${result}`
+      );
     } catch (error) {
-      return {
-        llmContent: `Error: ${error instanceof Error ? error.message : String(error)}`,
-        returnDisplay: `❌ Calculation error`,
-      };
+      return this.createErrorResult(
+        error instanceof Error ? error : new Error(String(error)),
+        'Calculator execution'
+      );
     }
   }
 }
@@ -109,26 +116,16 @@ class CalculatorTool implements ITool {
  * Simple concrete Agent implementation
  */
 class DemoAgent extends BaseAgent {
-  private chat: GeminiChat;
-  private toolScheduler: CoreToolScheduler;
   private tokenTracker: TokenTracker;
 
   constructor(config: IAgentConfig) {
-    super(config);
-    
     // Initialize chat
-    this.chat = new GeminiChat(
+    const chat = new GeminiChat(
       config.apiKey || process.env.GEMINI_API_KEY || '',
       config.model || 'gemini-pro',
       config.maxHistoryTokens || 1000000,
       [],
       'You are a helpful assistant that can perform calculations.'
-    );
-    
-    // Initialize token tracker
-    this.tokenTracker = new TokenTracker(
-      config.model || 'gemini-pro', 
-      config.maxHistoryTokens || 1000000
     );
     
     // Initialize tool scheduler
@@ -143,15 +140,16 @@ class DemoAgent extends BaseAgent {
       outputUpdateHandler: (callId, output) => this.handleOutputUpdate(callId, output),
     };
     
-    this.toolScheduler = new CoreToolScheduler(toolSchedulerConfig);
-  }
-
-  getChat() {
-    return this.chat;
-  }
-
-  getToolScheduler() {
-    return this.toolScheduler;
+    const toolScheduler = new CoreToolScheduler(toolSchedulerConfig);
+    
+    // Call parent constructor with all required parameters
+    super(config, chat, toolScheduler);
+    
+    // Initialize token tracker
+    this.tokenTracker = new TokenTracker(
+      config.model || 'gemini-pro', 
+      config.maxHistoryTokens || 1000000
+    );
   }
 
   getTokenTracker() {
@@ -173,114 +171,6 @@ class DemoAgent extends BaseAgent {
     console.log(`📤 [${callId}] ${output}`);
   }
 
-  // Implementation of abstract methods
-  async* process(
-    userInput: string,
-    sessionId: string,
-    signal: AbortSignal
-  ): AsyncGenerator<AgentEvent> {
-    console.log(`🤖 Processing: "${userInput}"`);
-    
-    // Emit start event
-    yield AgentEventFactory.createContentEvent('Processing your request...');
-    
-    try {
-      // Create chat message
-      const message: ChatMessage = {
-        content: userInput,
-        config: { temperature: 0.7 }
-      };
-      
-      // Send message to chat
-      const streamResponse = await this.chat.sendMessageStream(message, sessionId);
-      
-      let fullResponse = '';
-      
-      // Process streaming response
-      for await (const response of streamResponse) {
-        if (response.content.parts.length > 0) {
-          const text = response.content.parts
-            .filter(part => part.type === 'text')
-            .map(part => part.text)
-            .join('');
-          
-          if (text) {
-            fullResponse += text;
-            yield AgentEventFactory.createContentEvent(text);
-          }
-          
-          // Check for function calls
-          const functionCalls = response.content.parts
-            .filter(part => part.type === 'function_call');
-          
-          for (const call of functionCalls) {
-            if (call.functionCall) {
-              yield AgentEventFactory.createToolCallRequestEvent({
-                callId: call.functionCall.id || 'unknown',
-                name: call.functionCall.name,
-                args: call.functionCall.args,
-                isClientInitiated: false,
-                prompt_id: sessionId,
-              });
-              
-              // Execute tool
-              const toolRequest: IToolCallRequestInfo = {
-                callId: call.functionCall.id || 'unknown',
-                name: call.functionCall.name,
-                args: call.functionCall.args,
-                isClientInitiated: false,
-                prompt_id: sessionId,
-              };
-              
-              await this.toolScheduler.schedule(toolRequest, signal);
-            }
-          }
-        }
-        
-        // Update token usage
-        if (response.usage) {
-          this.tokenTracker.updateUsage({
-            inputTokens: response.usage.inputTokens,
-            outputTokens: response.usage.outputTokens,
-          });
-          
-          yield AgentEventFactory.createTokenUsageEvent(response.usage);
-        }
-      }
-      
-      // Emit completion event
-      yield AgentEventFactory.createContentEvent('\n✅ Processing complete!');
-      
-    } catch (error) {
-      console.error('❌ Processing error:', error);
-      yield AgentEventFactory.createErrorEvent(error instanceof Error ? error : new Error(String(error)));
-    }
-  }
-
-  getStatus(): IAgentStatus {
-    return {
-      currentTurn: 1,
-      isProcessing: this.chat.isProcessing(),
-      tokenUsage: this.tokenTracker.getUsage(),
-    };
-  }
-
-  getExecutionHistory(): any[] {
-    return this.chat.getHistory();
-  }
-
-  setSystemPrompt(prompt: string): void {
-    this.chat.setSystemPrompt(prompt);
-  }
-
-  onEvent(eventType: string, handler: EventHandler): void {
-    // Simple event handling for demo
-    console.log(`📡 Event handler registered for: ${eventType}`);
-  }
-
-  async cleanup(): Promise<void> {
-    console.log('🧹 Cleaning up agent...');
-  }
 }
 
 /**
@@ -353,14 +243,17 @@ async function main() {
           // Content is already logged by the processing
           break;
         case AgentEventType.ToolCallRequest:
-          console.log(`\n🔧 Tool requested: ${event.data.name}`);
-          console.log(`   Args: ${JSON.stringify(event.data.args)}`);
+          const toolData = event.data as any;
+          console.log(`\n🔧 Tool requested: ${toolData.toolCall.name}`);
+          console.log(`   Args: ${JSON.stringify(toolData.toolCall.args)}`);
           break;
         case AgentEventType.TokenUsage:
-          console.log(`\n📊 Token usage: ${event.data.totalTokens} tokens`);
+          const tokenData = event.data as any;
+          console.log(`\n📊 Token usage: ${tokenData.usage.totalTokens} tokens`);
           break;
         case AgentEventType.Error:
-          console.error(`\n❌ Error: ${event.data.message}`);
+          const errorData = event.data as any;
+          console.error(`\n❌ Error: ${errorData.message}`);
           break;
       }
     }

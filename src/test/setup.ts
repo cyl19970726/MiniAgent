@@ -45,7 +45,7 @@ export const testUtils = {
    * Create a mock function with type safety
    */
   createMockFn: <T extends (...args: any[]) => any>(implementation?: T) => {
-    return vi.fn(implementation) as T & ReturnType<typeof vi.fn>;
+    return implementation ? vi.fn(implementation) as T & ReturnType<typeof vi.fn> : vi.fn() as T & ReturnType<typeof vi.fn>;
   },
   
   /**
