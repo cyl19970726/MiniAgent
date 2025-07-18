@@ -31,6 +31,7 @@ A platform-agnostic agent framework for building autonomous AI agents with tool 
 5. **Streaming-First**: Real-time responses with comprehensive event emission
 
 ## Architecture
+<img width="5048" height="4694" alt="image" src="https://github.com/user-attachments/assets/224fc7b5-994c-4a3b-8aa0-174518967e45" />
 
 ```
 BaseAgent (connects all interfaces)
