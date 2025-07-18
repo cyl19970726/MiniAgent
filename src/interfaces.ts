@@ -333,6 +333,16 @@ export interface ChatMessage {
   config?: Record<string, unknown>;
 }
 
+export interface IChatConfig {
+  apiKey: string;
+  modelName: string;
+  tokenLimit: number;
+  systemPrompt?: string;
+  toolDeclarations?: ToolDeclaration[];
+  initialHistory?: ConversationContent[];
+  parallelToolCalls?: boolean;
+}
+
 /**
  * Core Chat interface - platform agnostic
  */
@@ -690,8 +700,7 @@ export type IToolCallsUpdateHandler = (toolCalls: IToolCall[]) => void;
  * Tool scheduler configuration
  */
 export interface IToolSchedulerConfig {
-  /** Tool registry provider */
-  toolRegistry: Promise<unknown>;
+  tools?: ITool[];
   /** Output update handler */
   outputUpdateHandler?: IOutputUpdateHandler;
   /** Completion handler */
@@ -740,6 +749,15 @@ export interface IToolScheduler {
     payload?: ToolConfirmationPayload,
   ): Promise<void>;
 
+  registerTool(tool: ITool): void;
+
+  // return true: removed, false: not found
+  removeTool(toolName: string): boolean;
+
+  getTool(name: string): ITool | undefined;
+
+  getToolList(): ITool[];
+
   /**
    * Get current tool calls
    * @returns Array of current tool calls
@@ -766,6 +784,16 @@ export interface IToolScheduler {
 /**
  * Agent configuration
  */
+export interface AllConfig {
+  agentConfig: IAgentConfig;
+   /** Tool scheduler configuration */
+   toolSchedulerConfig: Omit<IToolSchedulerConfig, 'tools'>;
+   chatConfig: Omit<IChatConfig, 'toolDeclarations'>;
+}
+
+/**
+ * Agent configuration
+ */
 export interface IAgentConfig {
   /** The AI model to use */
   model: string;
@@ -781,9 +809,8 @@ export interface IAgentConfig {
   maxHistoryTokens?: number;
   /** Enable debug mode */
   debugMode?: boolean;
-  /** Tool scheduler configuration */
-  toolSchedulerConfig?: IToolSchedulerConfig;
 }
+
 
 /**
  * Turn result
@@ -848,6 +875,18 @@ export interface IAgent {
    * @returns Chat instance
    */
   getChat(): IChat;
+
+  /**
+   * Get list of tools
+   * @returns List of tools
+   */
+  getToolList(): ITool[];
+
+  getTool(toolName: string): ITool | undefined;
+
+  registerTool(tool: ITool): void;
+
+  removeTool(toolName: string): boolean;
   
   /**
    * Get the tool scheduler instance

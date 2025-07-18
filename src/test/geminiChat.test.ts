@@ -15,6 +15,7 @@ import {
   ContentPart,
   LLMResponse,
   ITokenUsage,
+  IChatConfig,
 } from '../interfaces.js';
 
 // Mock GoogleGenAI
@@ -31,25 +32,21 @@ vi.mock('@google/genai', () => ({
 
 describe('GeminiChat', () => {
   let geminiChat: GeminiChat;
-  let mockApiKey: string;
-  let mockModelName: string;
-  let mockTokenLimit: number;
+  let mockChatConfig: IChatConfig;
 
   beforeEach(() => {
-    mockApiKey = 'test-api-key';
-    mockModelName = 'gemini-pro';
-    mockTokenLimit = 1000000;
+    mockChatConfig = {
+      apiKey: 'test-api-key',
+      modelName: 'gemini-pro',
+      tokenLimit: 1000000,
+      systemPrompt: 'You are a helpful assistant',
+      initialHistory: [],
+    };
     
     // Reset mocks
     vi.clearAllMocks();
     
-    geminiChat = new GeminiChat(
-      mockApiKey,
-      mockModelName,
-      mockTokenLimit,
-      [],
-      'You are a helpful assistant',
-    );
+    geminiChat = new GeminiChat(mockChatConfig);
   });
 
   afterEach(() => {
@@ -60,10 +57,10 @@ describe('GeminiChat', () => {
     it('should initialize with correct parameters', () => {
       expect(geminiChat).toBeInstanceOf(GeminiChat);
       expect(geminiChat.getModelInfo()).toEqual({
-        model: mockModelName,
-        tokenLimit: mockTokenLimit,
+        model: mockChatConfig.modelName,
+        tokenLimit: mockChatConfig.tokenLimit,
       });
-      expect(geminiChat.getSystemPrompt()).toBe('You are a helpful assistant');
+      expect(geminiChat.getSystemPrompt()).toBe(mockChatConfig.systemPrompt);
     });
 
     it('should initialize with empty history', () => {
@@ -80,12 +77,10 @@ describe('GeminiChat', () => {
         },
       ];
 
-      const chatWithHistory = new GeminiChat(
-        mockApiKey,
-        mockModelName,
-        mockTokenLimit,
+      const chatWithHistory = new GeminiChat({
+        ...mockChatConfig,
         initialHistory,
-      );
+      });
 
       expect(chatWithHistory.getHistory()).toEqual(initialHistory);
     });
@@ -99,7 +94,10 @@ describe('GeminiChat', () => {
     });
 
     it('should handle undefined system prompt', () => {
-      const chatWithoutPrompt = new GeminiChat(mockApiKey, mockModelName, mockTokenLimit);
+      const chatWithoutPrompt = new GeminiChat({
+        ...mockChatConfig,
+        systemPrompt: undefined,
+      });
       expect(chatWithoutPrompt.getSystemPrompt()).toBeUndefined();
     });
   });
@@ -112,7 +110,7 @@ describe('GeminiChat', () => {
         outputTokens: 0,
         totalTokens: 0,
         cumulativeTokens: 0,
-        tokenLimit: mockTokenLimit,
+        tokenLimit: mockChatConfig.tokenLimit,
         usagePercentage: 0,
       });
     });
@@ -281,7 +279,7 @@ describe('GeminiChat', () => {
       const streamResponse = await geminiChat.sendMessageStream(mockMessage, promptId);
 
       expect(mockGenerateContentStream).toHaveBeenCalledWith({
-        model: mockModelName,
+        model: mockChatConfig.modelName,
         contents: [
           {
             role: 'user',
@@ -369,8 +367,8 @@ describe('GeminiChat', () => {
         responses.push(response);
       }
 
-      expect(responses).toHaveLength(1);
-      expect(responses[0].content.parts).toEqual([]);
+      // Empty responses should be skipped, so no responses expected
+      expect(responses).toHaveLength(0);
     });
 
     it('should prevent concurrent message processing', async () => {
@@ -530,7 +528,7 @@ describe('GeminiChat', () => {
         role: 'model',
         parts: [
           { text: 'Hello' },
-          { functionCall: { name: 'test', args: {} } },
+          { functionCall: { id: 'call_1', name: 'test', args: {} } },
         ],
       });
     });
@@ -568,7 +566,7 @@ describe('GeminiChat', () => {
     it('should provide usage summary', () => {
       const summary = geminiChat.getUsageSummary();
       expect(summary).toContain('Token Usage Summary');
-      expect(summary).toContain(mockModelName);
+      expect(summary).toContain(mockChatConfig.modelName);
       expect(summary).toContain('0 tokens'); // Initial state
     });
   });
@@ -604,9 +602,8 @@ describe('GeminiChat', () => {
         responses.push(response);
       }
 
-      // Should handle gracefully and produce empty response
-      expect(responses).toHaveLength(1);
-      expect(responses[0].content.parts).toEqual([]);
+      // Should handle gracefully by skipping malformed chunks
+      expect(responses).toHaveLength(0);
     });
   });
 });

@@ -10,27 +10,11 @@
 
 import { error } from 'console';
 import { 
-  BaseAgent, 
-  GeminiChat, 
-  CoreToolScheduler, 
-  TokenTracker,
-  AgentEventFactory,
-  AgentEventEmitter,
-  IAgentConfig,
-  IAgentStatus,
-  BaseTool,
-  ITool,
-  ToolResult,
-  ToolCallConfirmationDetails,
-  ToolConfirmationOutcome,
+  StandardAgent,
   AgentEventType,
   AgentEvent,
-  IToolSchedulerConfig,
-  IToolCallRequestInfo,
-  ICompletedToolCall,
-  ChatMessage,
-  EventHandler,
-  ToolCallRequest,
+  AllConfig,
+  ITool,
 } from '../src/index.js';
 
 import { Type } from '@google/genai';
@@ -39,71 +23,10 @@ import { createWeatherTool,createSubTool } from './tools.js';
 const weatherTool = createWeatherTool();
 const subTool = createSubTool();
 /**
- * Simple concrete Agent implementation
+ * Create Agent using StandardAgent
  */
-class DemoAgent extends BaseAgent {
-  private tokenTracker: TokenTracker;
-
-  constructor(config: IAgentConfig) {
-    // Initialize chat
-    const chat = new GeminiChat(
-      config.apiKey || process.env.GEMINI_API_KEY || '',
-      config.model || 'gemini-2.5-flash',
-      config.maxHistoryTokens || 1000000,
-      [],
-      `You are a helpful assistant with access to the following tools:
-1. get_weather: Get current weather temperature for any coordinates
-2. subtract: Perform subtraction between two numbers
-
-When users ask about weather or temperature differences between cities, use the get_weather tool to fetch the current temperatures, then use the subtract tool to calculate the difference.`,
-      [weatherTool.schema, subTool.schema],
-      false,
-    );
-    
-    // Initialize tool scheduler
-    const toolRegistry = new Map<string, ITool>();
-    toolRegistry.set('get_weather', weatherTool);
-    toolRegistry.set('subtract', subTool);
-    
-    const toolSchedulerConfig: IToolSchedulerConfig = {
-      toolRegistry: Promise.resolve(toolRegistry),
-      approvalMode: 'yolo', // Auto-approve for demo
-      onAllToolCallsComplete: (calls) => this.handleToolsComplete(calls),
-      onToolCallsUpdate: (calls) => this.handleToolsUpdate(calls),
-      outputUpdateHandler: (callId, output) => this.handleOutputUpdate(callId, output),
-    };
-    
-    const toolScheduler = new CoreToolScheduler(toolSchedulerConfig);
-    
-    // Call parent constructor with all required parameters
-    super(config, chat, toolScheduler);
-    
-    // Initialize token tracker
-    this.tokenTracker = new TokenTracker(
-      config.model || 'gemini-2.0-flash', 
-      config.maxHistoryTokens || 1000000
-    );
-  }
-
-  getTokenTracker() {
-    return this.tokenTracker;
-  }
-
-  private async handleToolsComplete(calls: ICompletedToolCall[]) {
-    console.log(`✅ ${calls.length} tool(s) completed`);
-    for (const call of calls) {
-      console.log(`   - ${call.request.name}: ${call.status}`);
-    }
-  }
-
-  private async handleToolsUpdate(calls: any[]) {
-    console.log(`🔄 Tool status update: ${calls.length} active calls`);
-  }
-
-  private async handleOutputUpdate(callId: string, output: string) {
-    console.log(`📤 [${callId}] ${output}`);
-  }
-
+function createAgent(config: AllConfig, tools: ITool[]): StandardAgent {
+  return new StandardAgent(tools, config);
 }
 
 /**
@@ -124,36 +47,57 @@ async function main() {
   }
 
   // Create agent configuration
-  const config: IAgentConfig = {
-    model: 'gemini-2.0-flash',
-    workingDirectory: process.cwd(),
-    apiKey: apiKey,
-    sessionId: `demo-${Date.now()}`,
-    maxHistoryTokens: 100000,
-    debugMode: true,
+  const config: AllConfig = {
+    agentConfig: {
+      model: 'gemini-2.0-flash',
+      workingDirectory: process.cwd(),
+      apiKey: apiKey,
+      sessionId: `demo-${Date.now()}`,
+      maxHistoryTokens: 100000,
+      debugMode: true,
+    },
+    chatConfig: {
+      apiKey: apiKey,
+      modelName: 'gemini-2.0-flash',
+      tokenLimit: 100000,
+      systemPrompt: `You are a helpful assistant with access to the following tools:
+1. get_weather: Get current weather temperature for any coordinates
+2. subtract: Perform subtraction between two numbers
+
+When users ask about weather or temperature differences between cities, use the get_weather tool to fetch the current temperatures, then use the subtract tool to calculate the difference.`,
+    },
+    toolSchedulerConfig: {
+      approvalMode: 'yolo', // Auto-approve for demo
+      onAllToolCallsComplete: (calls) => {
+        console.log(`✅ ${calls.length} tool(s) completed`);
+        for (const call of calls) {
+          console.log(`   - ${call.request.name}: ${call.status}`);
+        }
+      },
+      onToolCallsUpdate: (calls) => {
+        console.log(`🔄 Tool status update: ${calls.length} active calls`);
+      },
+      outputUpdateHandler: (callId, output) => {
+        console.log(`📤 [${callId}] ${output}`);
+      },
+    },
   };
 
   console.log('🔑 API Key configured: Yes');
-  console.log('🤖 Model:', config.model);
-  console.log('💾 Working Directory:', config.workingDirectory);
-  console.log('🔢 Token Limit:', config.maxHistoryTokens);
+  console.log('🤖 Model:', config.agentConfig.model);
+  console.log('💾 Working Directory:', config.agentConfig.workingDirectory);
+  console.log('🔢 Token Limit:', config.agentConfig.maxHistoryTokens);
   console.log('');
 
   try {
     // Create agent
     console.log('🤖 Creating agent...');
-    const agent = new DemoAgent(config);
-    
-    // Set up event monitoring
-    const eventEmitter = new AgentEventEmitter();
-    eventEmitter.on('content', (event: AgentEvent) => {
-      console.log('🤖 Assistant Response:',event.data);
-    });
-    // eventEmitter.on
+    const tools = [weatherTool, subTool];
+    const agent = createAgent(config, tools);
     
     // Test basic conversation
     console.log('💬 Starting conversation...');
-    const sessionId = config.sessionId || 'demo-session';
+    const sessionId = config.agentConfig.sessionId || 'demo-session';
     const abortController = new AbortController();
     
     // Set timeout
@@ -202,7 +146,10 @@ async function main() {
     
     // Show usage summary
     console.log('\n📈 Token Usage Summary:');
-    console.log(agent.getTokenTracker().getUsageSummary());
+    const tokenUsage = agent.getTokenUsage();
+    console.log(`   • Input tokens: ${tokenUsage.inputTokens}`);
+    console.log(`   • Output tokens: ${tokenUsage.outputTokens}`);
+    console.log(`   • Total tokens: ${tokenUsage.totalTokens}`);
     
     console.log('\n✅ Example completed successfully!');
     
@@ -226,4 +173,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(console.error);
 }
 
-export { main as runBasicExample, DemoAgent };
+export { main as runBasicExample };

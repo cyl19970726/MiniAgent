@@ -30,7 +30,7 @@ import {
   LLMResponse,
   ConversationContent,
   ContentPart,
-  ToolDeclaration,
+  IChatConfig,
 } from './interfaces.js';
 import { TokenTracker } from './tokenTracker.js';
 
@@ -58,7 +58,6 @@ export class GeminiChat implements IChat {
   private tokenTracker: TokenTracker;
   private sendPromise: Promise<void> = Promise.resolve();
   private isCurrentlyProcessing: boolean = false;
-  private systemPrompt?: string;
   private aiClient: GoogleGenAI;
   private contentGenerator: {
     generateContentStream: (request: GenerateContentParameters) => Promise<AsyncGenerator<GenerateContentResponse>>;
@@ -66,28 +65,22 @@ export class GeminiChat implements IChat {
   private generateContentConfig: GenerateContentConfig;
 
   constructor(
-    apiKey: string,
-    private readonly modelName: string,
-    private readonly tokenLimit: number,
-    initialHistory: ConversationContent[] = [],
-    systemPrompt: string,
-    toolDeclarations: ToolDeclaration[],
-    parallelToolCall: boolean = true,
+    private readonly chatConfig: IChatConfig,
   ) {
-    this.aiClient = new GoogleGenAI({ apiKey });
+    this.chatConfig = chatConfig;
+    this.aiClient = new GoogleGenAI({ apiKey: chatConfig.apiKey });
     this.contentGenerator = this.aiClient.models;
-    this.history = [...initialHistory];
-    this.tokenTracker = new TokenTracker(modelName, tokenLimit);
-    this.systemPrompt = systemPrompt;
+    this.history = [...chatConfig.initialHistory || []];
+    this.tokenTracker = new TokenTracker(chatConfig.modelName, chatConfig.tokenLimit);
 
     let config: GenerateContentConfig = {
-      systemInstruction: systemPrompt,
+      systemInstruction: chatConfig.systemPrompt || '',
     }
 
     // Only add tools if we have tool declarations
-    if (toolDeclarations && toolDeclarations.length > 0) {
+    if (chatConfig.toolDeclarations && chatConfig.toolDeclarations.length > 0) {
       config.tools = [{
-        functionDeclarations: toolDeclarations.map(tool => {
+        functionDeclarations: chatConfig.toolDeclarations.map(tool => {
           const declaration: any = {
             name: tool.name,
             description: tool.description,
@@ -96,6 +89,8 @@ export class GeminiChat implements IChat {
             // Convert Type enum values (uppercase) to lowercase for Gemini API
             declaration.parameters = this.convertTypesToLowercase(tool.parameters);
           }
+          console.log('[GEMINI_CHAT][Constructor] tool parameters:', tool.parameters);
+
           return declaration;
         })
       }];
@@ -104,13 +99,13 @@ export class GeminiChat implements IChat {
       config.toolConfig = {
         functionCallingConfig: {
           // see https://ai.google.dev/gemini-api/docs/function-calling?example=meeting#function_calling_modes
-          mode: parallelToolCall ? FunctionCallingConfigMode.ANY : FunctionCallingConfigMode.AUTO
+          mode: chatConfig.parallelToolCalls ? FunctionCallingConfigMode.ANY : FunctionCallingConfigMode.AUTO
         }
       };
     }
 
     this.generateContentConfig = isThinkingSupported(
-      modelName
+      chatConfig.modelName
     )
       ? {
           ...config,
@@ -153,12 +148,13 @@ export class GeminiChat implements IChat {
       const requestConfig = JSON.parse(JSON.stringify(this.generateContentConfig));
       
       const request: GenerateContentParameters = {
-        model: this.modelName,
+        model: this.chatConfig.modelName,
         contents: requestContents,
         config: requestConfig,
       };
       console.log('[GEMINI_CHAT] request generateContentConfig tools:', (requestConfig.tools?.[0] as any)?.functionDeclarations?.[0]);
-      // console.log('[GEMINI_CHAT] Full request config:', JSON.stringify(requestConfig, null, 2));
+      console.log('[GEMINI_CHAT] Full request config:', JSON.stringify(requestConfig, null, 2));
+      console.log('[GEMINI_CHAT] Request contents:', JSON.stringify(requestContents, null, 2));
 
       const streamResponse = await this.contentGenerator.generateContentStream(request);
       const result = this.processStreamResponse(streamResponse, this.convertFromGeminiContent(userContent), promptId);
@@ -449,8 +445,8 @@ export class GeminiChat implements IChat {
    */
   getModelInfo(): { model: string; tokenLimit: number } {
     return {
-      model: this.modelName,
-      tokenLimit: this.tokenLimit,
+      model: this.chatConfig.modelName,
+      tokenLimit: this.chatConfig.tokenLimit,
     };
   }
 
@@ -462,7 +458,7 @@ export class GeminiChat implements IChat {
    * @param systemPrompt - New system prompt text
    */
   setSystemPrompt(systemPrompt: string): void {
-    this.systemPrompt = systemPrompt;
+    this.chatConfig.systemPrompt = systemPrompt;
   }
 
   /**
@@ -471,7 +467,7 @@ export class GeminiChat implements IChat {
    * @returns Current system prompt or undefined if not set
    */
   getSystemPrompt(): string | undefined {
-    return this.systemPrompt;
+    return this.chatConfig.systemPrompt;
   }
 
   /**
@@ -538,6 +534,7 @@ export class GeminiChat implements IChat {
           return {
             functionCall: {
               name: part.functionCall?.name || '',
+              id: part.functionCall?.id || ``,
               args: part.functionCall?.args || {},
             },
           } as GeminiPart;
@@ -545,6 +542,7 @@ export class GeminiChat implements IChat {
           return {
             functionResponse: {
               name: part.functionResponse?.name || '',
+              id: part.functionResponse?.id || '',
               response: part.functionResponse?.result as Record<string, unknown>,
             },
           } as GeminiPart;
@@ -639,7 +637,7 @@ export class GeminiChat implements IChat {
     const response: LLMResponse = {
       id: responseId,
       content,
-      model: this.modelName,
+      model: this.chatConfig.modelName,
       metadata: {
         timestamp: Date.now(),
         promptId: responseId.split('_')[0],

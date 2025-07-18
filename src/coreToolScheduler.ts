@@ -63,14 +63,25 @@ export class CoreToolScheduler implements IToolScheduler {
   /** Available tools registry */
   private toolRegistry: Map<string, ITool> = new Map();
   
+  /** Promise that resolves when registry is ready */
+  private registryReady: Promise<void>;
+  
   /** Abort controller for canceling all operations */
   private abortController?: AbortController;
-  
-  /** Promise that resolves when tool registry is loaded */
-  private registryPromise: Promise<void>;
 
-  constructor(private config: IToolSchedulerConfig) {
-    this.registryPromise = this.loadToolRegistry();
+  constructor(private config: IToolSchedulerConfig & { toolRegistry?: Promise<Map<string, ITool>> }) {
+    // Support both new interface (tools array) and old interface (toolRegistry promise)
+    if (config.tools) {
+      this.toolRegistry = new Map(config.tools.map(tool => [tool.name, tool]));
+      this.registryReady = Promise.resolve();
+    } else if (config.toolRegistry) {
+      // Initialize async for backward compatibility
+      this.registryReady = config.toolRegistry.then(registry => {
+        this.toolRegistry = registry;
+      });
+    } else {
+      this.registryReady = Promise.resolve();
+    }
   }
 
   /**
@@ -86,9 +97,6 @@ export class CoreToolScheduler implements IToolScheduler {
     request: IToolCallRequestInfo | IToolCallRequestInfo[],
     signal: AbortSignal,
   ): Promise<void> {
-    // Ensure tool registry is loaded
-    await this.registryPromise;
-    
     const requests = Array.isArray(request) ? request : [request];
     
     if (requests.length === 0) {
@@ -182,6 +190,25 @@ export class CoreToolScheduler implements IToolScheduler {
     this.notifyUpdate();
   }
 
+  registerTool(tool: ITool): void {
+    this.toolRegistry.set(tool.name, tool);
+  }
+
+  removeTool(toolName: string): boolean {
+    return this.toolRegistry.delete(toolName);
+  }
+
+  getTool(name: string): ITool | undefined {
+    // Note: This is synchronous, so for backward compatibility we return undefined if registry not ready
+    // In practice, this should be called after initialization
+    const tool = this.toolRegistry.get(name);
+    return tool;
+  }
+
+  getToolList(): ITool[] {
+    return Array.from(this.toolRegistry.values());
+  }
+
   /**
    * Get current tool calls
    * 
@@ -224,28 +251,6 @@ export class CoreToolScheduler implements IToolScheduler {
   // PRIVATE IMPLEMENTATION METHODS
   // ============================================================================
 
-  /**
-   * Load tool registry from configuration
-   */
-  private async loadToolRegistry(): Promise<void> {
-    try {
-      const registry = await this.config.toolRegistry;
-      
-      // Process the registry to extract tools
-      if (registry instanceof Map) {
-        // Direct Map assignment
-        this.toolRegistry = registry;
-      } else if (registry && typeof registry === 'object') {
-        // Convert object to Map
-        this.toolRegistry = new Map(Object.entries(registry));
-      } else {
-        console.warn('Tool registry is not in expected format');
-      }
-    } catch (error) {
-      console.error('Failed to load tool registry:', error);
-      throw new Error('Tool registry initialization failed');
-    }
-  }
 
   /**
    * Validate all tool call requests
@@ -327,6 +332,9 @@ export class CoreToolScheduler implements IToolScheduler {
    * Resolve tool instance for a request
    */
   private async resolveToolForRequest(request: IToolCallRequestInfo): Promise<ITool> {
+    // Ensure registry is loaded for backward compatibility
+    await this.registryReady;
+    
     const tool = this.toolRegistry.get(request.name);
     
     if (!tool) {

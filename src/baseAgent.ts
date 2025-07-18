@@ -24,6 +24,7 @@ import {
   ICompletedToolCall,
   LLMResponse,
   ChatMessage,
+  ITool,
 } from './interfaces.js';
 
 /**
@@ -60,7 +61,7 @@ import {
  * }
  * ```
  */
-export class BaseAgent implements IAgent {
+export abstract class BaseAgent implements IAgent {
   /** Map of event handler IDs to their handler functions */
   private eventHandlers: Map<string, EventHandler> = new Map();
   
@@ -84,11 +85,29 @@ export class BaseAgent implements IAgent {
    * @param toolScheduler - Tool scheduler for executing tool calls
    */
   constructor(
-    private config: IAgentConfig,
-    private chat: IChat,
-    private toolScheduler: IToolScheduler,
+    protected agentConfig: IAgentConfig,
+    protected chat: IChat,
+    protected toolScheduler: IToolScheduler,
   ) {
+    
     this.setupEventHandlers();
+  }
+
+  registerTool(tool: ITool): void {
+    this.toolScheduler.registerTool(tool);
+  }
+
+  removeTool(toolName: string): boolean {
+    const removed = this.toolScheduler.removeTool(toolName);
+    return removed;
+  }
+
+  getToolList(): ITool[] {
+    return this.toolScheduler.getToolList();
+  }
+
+  getTool(toolName: string): ITool | undefined {
+    return this.toolScheduler.getTool(toolName);
   }
 
   /**
@@ -184,6 +203,7 @@ export class BaseAgent implements IAgent {
 
         // 4. Convert tool call responses to chat message for next turn
         currentChatMessage = this.convertToolCallResponsesToChatMessage(toolCallResponses);
+        console.log('[BASE_AGENT] Will continue with tool responses as next turn input');
       }
 
     } catch (error) {
@@ -321,8 +341,8 @@ export class BaseAgent implements IAgent {
     // Schedule tools for execution
     await this.toolScheduler.schedule(toolCalls, abortSignal);
 
-    // Wait for completion
-    const completedCalls = await this.waitForToolCompletion(abortSignal);
+    // Wait for completion and get only current turn's completed calls
+    const completedCalls = await this.waitForCurrentToolCompletion(toolCalls, abortSignal);
 
     // Process completed tools
     for (const completedCall of completedCalls) {
@@ -348,7 +368,45 @@ export class BaseAgent implements IAgent {
   }
 
   /**
-   * Wait for tool completion with timeout
+   * Wait for completion of current turn's tool calls only
+   * 
+   * This method waits for the specific tool calls from the current turn to complete,
+   * filtering out any previously completed tool calls from other turns.
+   * 
+   * @param currentToolCalls - The tool calls from the current turn
+   * @param abortSignal - Signal to abort waiting
+   * @returns Promise resolving to array of completed tool calls from current turn only
+   * 
+   * @private
+   */
+  private async waitForCurrentToolCompletion(
+    currentToolCalls: IToolCallRequestInfo[],
+    abortSignal: AbortSignal
+  ): Promise<ICompletedToolCall[]> {
+    const maxWaitTime = 30000; // 30 seconds
+    const startTime = Date.now();
+    const currentCallIds = new Set(currentToolCalls.map(call => call.callId));
+    
+    while (this.toolScheduler.isRunning() && !abortSignal.aborted) {
+      if (Date.now() - startTime > maxWaitTime) {
+        this.toolScheduler.cancelAll('Timeout waiting for tool completion');
+        break;
+      }
+      await this.wait(100);
+    }
+
+    // Return only completed calls from the current turn
+    return this.toolScheduler.getCurrentToolCalls().filter(
+      call => {
+        const isCompleted = call.status === 'success' || call.status === 'error' || call.status === 'cancelled';
+        const isCurrentTurn = currentCallIds.has(call.request.callId);
+        return isCompleted && isCurrentTurn;
+      }
+    ) as ICompletedToolCall[];
+  }
+
+  /**
+   * Wait for tool completion with timeout (legacy method)
    * 
    * This method waits for all scheduled tools to complete execution.
    * It implements a timeout mechanism to prevent hanging and respects
@@ -481,6 +539,8 @@ export class BaseAgent implements IAgent {
       },
     };
 
+    console.log('[BASE_AGENT] Created function response part:', resultPart);
+
     return [resultPart];
   }
 
@@ -520,6 +580,8 @@ export class BaseAgent implements IAgent {
       parts.push(...toolCallResponse.content);
     }
 
+    console.log('[BASE_AGENT] Converting tool responses to chat message:', parts);
+
     return {
       content: parts,
     };
@@ -552,7 +614,7 @@ export class BaseAgent implements IAgent {
       data,
       timestamp: Date.now(),
       metadata: {
-        agentId: this.config.sessionId,
+        agentId: this.agentConfig.sessionId,
         turn: this.currentTurn,
       },
     };
@@ -650,7 +712,7 @@ export class BaseAgent implements IAgent {
       isRunning: this.isRunning,
       currentTurn: this.currentTurn,
       historySize: this.chat.getHistory().length,
-      config: this.config,
+      config: this.agentConfig,
       lastUpdateTime: this.lastUpdateTime,
       tokenUsage: this.getTokenUsage(),
       modelInfo: this.chat.getModelInfo(),

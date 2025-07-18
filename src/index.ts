@@ -19,9 +19,11 @@ export type {
   ITurnResult,
   EventHandler,
   PartialAgentConfig,
+  AllConfig,
   
   // Chat interfaces
   IChat,
+  IChatConfig,
   ITokenUsage,
   ITokenTracker,
   ChatMessage,
@@ -90,6 +92,7 @@ export { GeminiChat } from './geminiChat.js';
 
 // Agent implementation
 export { BaseAgent } from './baseAgent.js';
+export { StandardAgent } from './standardAgent.js';
 
 // Tool scheduler implementation
 export { CoreToolScheduler } from './coreToolScheduler.js';

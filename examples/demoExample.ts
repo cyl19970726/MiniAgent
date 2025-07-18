@@ -6,25 +6,21 @@
  */
 
 import { 
+  StandardAgent,
   GeminiChat, 
-  CoreToolScheduler, 
-  TokenTracker,
-  AgentEventFactory,
-  AgentEventEmitter,
-  IAgentConfig,
   BaseTool,
   ITool,
   ToolResult,
-  ToolCallConfirmationDetails,
+  AgentEventFactory,
   AgentEventType,
   AgentEvent,
-  IToolSchedulerConfig,
-  IToolCallRequestInfo,
   ICompletedToolCall,
+  ITokenUsage,
   ChatMessage,
   LLMResponse,
   ConversationContent,
   ToolCallRequest,
+  AllConfig,
 } from '../src/index.js';
 
 import { Type } from '@google/genai';
@@ -42,7 +38,13 @@ class MockGeminiChat extends GeminiChat {
   private responseIndex = 0;
 
   constructor() {
-    super('mock-api-key', 'gemini-pro', 100000, [], 'You are a helpful assistant with access to a calculator.');
+    super({
+      apiKey: 'mock-api-key',
+      modelName: 'gemini-pro',
+      tokenLimit: 100000,
+      systemPrompt: 'You are a helpful assistant with access to a calculator.',
+      initialHistory: [],
+    });
   }
 
   async sendMessageStream(message: ChatMessage, promptId: string): Promise<AsyncGenerator<LLMResponse>> {
@@ -179,153 +181,39 @@ class DemoCalculatorTool extends BaseTool<{ expression: string }> {
 }
 
 /**
- * Demo Agent that orchestrates all components
+ * Demo Agent wrapper that uses StandardAgent with MockGeminiChat
  */
 class DemoAgent {
-  private chat: MockGeminiChat;
-  private toolScheduler: CoreToolScheduler;
-  private tokenTracker: TokenTracker;
-  private eventEmitter: AgentEventEmitter;
+  private agent: StandardAgent;
+  private mockChat: MockGeminiChat;
 
-  constructor() {
-    this.chat = new MockGeminiChat();
-    this.tokenTracker = new TokenTracker('gemini-pro', 100000);
-    this.eventEmitter = new AgentEventEmitter();
+  constructor(config: AllConfig, tools: ITool[]) {
+    // Create the agent with custom chat implementation
+    this.mockChat = new MockGeminiChat();
+    this.agent = new StandardAgent(tools, config);
     
-    // Set up tool scheduler
-    const toolRegistry = new Map<string, ITool>();
-    toolRegistry.set('calculator', new DemoCalculatorTool());
-    
-    const toolSchedulerConfig: IToolSchedulerConfig = {
-      toolRegistry: Promise.resolve(toolRegistry),
-      approvalMode: 'yolo',
-      onAllToolCallsComplete: (calls) => this.handleToolsComplete(calls),
-      onToolCallsUpdate: (calls) => this.handleToolsUpdate(calls),
-      outputUpdateHandler: (callId, output) => this.handleOutputUpdate(callId, output),
-    };
-    
-    this.toolScheduler = new CoreToolScheduler(toolSchedulerConfig);
-  }
-
-  private async handleToolsComplete(calls: ICompletedToolCall[]) {
-    console.log(`✅ ${calls.length} tool(s) completed`);
-    for (const call of calls) {
-      console.log(`   - ${call.request.name}: ${call.status}`);
-      if (call.status === 'success') {
-        console.log(`   Result: ${call.response.resultDisplay}`);
-      }
-    }
-  }
-
-  private async handleToolsUpdate(calls: any[]) {
-    console.log(`🔄 ${calls.length} tool(s) in progress`);
-  }
-
-  private async handleOutputUpdate(callId: string, output: string) {
-    console.log(`📤 [${callId}] ${output}`);
+    // Replace the chat with our mock implementation
+    // We need to use the agent's internal structure for demo purposes
+    (this.agent as any).chat = this.mockChat;
   }
 
   async* processDemo(userInput: string): AsyncGenerator<AgentEvent> {
     console.log(`🤖 Processing: "${userInput}"`);
     
-    // Emit start event
-    const eventFactory = new AgentEventFactory('demo-agent');
-    yield eventFactory.createContentEvent('assistant_chunk', '🤖 Starting to process your request...\n');
+    // Use the standard agent's process method
+    const sessionId = 'demo-session';
+    const abortController = new AbortController();
     
-    try {
-      // Create chat message
-      const message: ChatMessage = {
-        content: userInput,
-        config: { temperature: 0.7 }
-      };
-      
-      // Send message to chat
-      const sessionId = 'demo-session';
-      const streamResponse = await this.chat.sendMessageStream(message, sessionId);
-      
-      let fullResponse = '';
-      
-      // Process streaming response
-      for await (const response of streamResponse) {
-        console.log('\n📨 Received response from LLM:');
-        
-        for (const part of response.content.parts) {
-          if (part.type === 'text') {
-            fullResponse += part.text;
-            console.log(`💬 Assistant: ${part.text}`);
-            yield eventFactory.createContentEvent('assistant_chunk', part.text + '\n');
-          } else if (part.type === 'function_call' && part.functionCall) {
-            console.log(`🔧 Tool Call: ${part.functionCall.name}`);
-            console.log(`   Args: ${JSON.stringify(part.functionCall.args)}`);
-            
-            const toolCallRequest: ToolCallRequest = {
-              callId: part.functionCall.id || 'unknown',
-              name: part.functionCall.name,
-              args: part.functionCall.args,
-              isClientInitiated: false,
-              promptId: sessionId,
-            };
-            yield eventFactory.createToolCallRequestEvent(toolCallRequest);
-            
-            // Execute tool
-            const toolRequest: IToolCallRequestInfo = {
-              callId: part.functionCall.id || 'unknown',
-              name: part.functionCall.name,
-              args: part.functionCall.args,
-              isClientInitiated: false,
-              promptId: sessionId,
-            };
-            
-            console.log('\n🔧 Executing tool...');
-            const abortController = new AbortController();
-            await this.toolScheduler.schedule(toolRequest, abortController.signal);
-          }
-        }
-        
-        // Update token usage
-        if (response.usage) {
-          this.tokenTracker.updateUsage({
-            inputTokens: response.usage.inputTokens,
-            outputTokens: response.usage.outputTokens,
-          });
-          
-          // Create proper ITokenUsage object for event
-          const tokenUsage: ITokenUsage = {
-            inputTokens: response.usage.inputTokens,
-            outputTokens: response.usage.outputTokens,
-            totalTokens: response.usage.totalTokens,
-            cumulativeTokens: response.usage.totalTokens, // For demo purposes
-            tokenLimit: 100000,
-            usagePercentage: (response.usage.totalTokens / 100000) * 100,
-          };
-          yield eventFactory.createTokenUsageEvent(tokenUsage);
-        }
-      }
-      
-      // Wait a bit for tools to complete
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Show final status
-      console.log('\n' + '='.repeat(50));
-      console.log('📊 Final Status:');
-      console.log(`   • Total tokens: ${this.tokenTracker.getUsage().totalTokens}`);
-      console.log(`   • Token usage: ${this.tokenTracker.getUsage().usagePercentage.toFixed(2)}%`);
-      console.log('='.repeat(50));
-      
-      yield eventFactory.createContentEvent('assistant_chunk', '\n✅ Demo completed successfully!');
-      
-    } catch (error) {
-      console.error('❌ Processing error:', error);
-      yield eventFactory.createErrorEvent(error instanceof Error ? error : new Error(String(error)));
-    }
+    yield* this.agent.process(userInput, sessionId, abortController.signal);
   }
 
   getTokenUsage() {
-    return this.tokenTracker.getUsage();
+    return this.agent.getTokenUsage();
   }
 
   getTokenSummary() {
-    return this.tokenTracker.getUsageSummary();
+    const usage = this.agent.getTokenUsage();
+    return `Input: ${usage.inputTokens}, Output: ${usage.outputTokens}, Total: ${usage.totalTokens}`;
   }
 }
 
@@ -345,9 +233,48 @@ async function main() {
   console.log('');
 
   try {
+    // Create demo agent configuration
+    const config: AllConfig = {
+      agentConfig: {
+        model: 'gemini-pro',
+        workingDirectory: process.cwd(),
+        apiKey: 'mock-api-key',
+        sessionId: 'demo-session',
+        maxHistoryTokens: 100000,
+        debugMode: true,
+      },
+      chatConfig: {
+        apiKey: 'mock-api-key',
+        modelName: 'gemini-pro',
+        tokenLimit: 100000,
+        systemPrompt: 'You are a helpful assistant with access to a calculator.',
+      },
+      toolSchedulerConfig: {
+        approvalMode: 'yolo',
+        onAllToolCallsComplete: (calls) => {
+          console.log(`✅ ${calls.length} tool(s) completed`);
+          for (const call of calls) {
+            console.log(`   - ${call.request.name}: ${call.status}`);
+            if (call.status === 'success') {
+              console.log(`   Result: ${call.response.resultDisplay}`);
+            }
+          }
+        },
+        onToolCallsUpdate: (calls) => {
+          console.log(`🔄 ${calls.length} tool(s) in progress`);
+        },
+        outputUpdateHandler: (callId, output) => {
+          console.log(`📤 [${callId}] ${output}`);
+        },
+      },
+    };
+    
+    // Create tools
+    const tools = [new DemoCalculatorTool()];
+    
     // Create demo agent
     console.log('🤖 Creating demo agent...');
-    const agent = new DemoAgent();
+    const agent = new DemoAgent(config, tools);
     
     // Demo conversation
     console.log('💬 Starting demo conversation...');
