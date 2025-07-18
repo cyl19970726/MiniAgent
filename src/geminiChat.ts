@@ -480,7 +480,7 @@ export class GeminiChat implements IChat {
    * @param systemPrompt - New system prompt text
    */
   setSystemPrompt(systemPrompt: string): void {
-    this.chatConfig.systemPrompt = systemPrompt;
+    this.generateContentConfig.systemInstruction = systemPrompt;
   }
 
   /**
@@ -489,9 +489,9 @@ export class GeminiChat implements IChat {
    * @returns Current system prompt or undefined if not set
    */
   getSystemPrompt(): string | undefined {
-    return this.chatConfig.systemPrompt;
+    return this.generateContentConfig.systemInstruction as string;
   }
-
+  
   /**
    * Handle model fallback (e.g., pro -> flash)
    * 

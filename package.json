@@ -1,5 +1,5 @@
 {
-  "name": "@gemini-tool/agent",
+  "name": "@continue-reasoning/agent",
   "version": "0.1.0",
   "type": "module",
   "private": false,

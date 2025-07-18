@@ -75,9 +75,6 @@ export abstract class BaseAgent implements IAgent {
   /** Timestamp of the last status update */
   private lastUpdateTime = Date.now();
   
-  /** Current system prompt, if set */
-  private systemPrompt?: string;
-  
   /** Logger instance for this agent */
   protected logger: ILogger;
 
@@ -687,7 +684,6 @@ export abstract class BaseAgent implements IAgent {
    * Set system prompt
    */
   setSystemPrompt(systemPrompt: string): void {
-    this.systemPrompt = systemPrompt;
     this.chat.setSystemPrompt(systemPrompt);
     this.emitEvent(this.createEvent(AgentEventType.Content, {
       type: 'system_prompt_set',
@@ -700,7 +696,7 @@ export abstract class BaseAgent implements IAgent {
    * Get current system prompt
    */
   getSystemPrompt(): string | undefined {
-    return this.systemPrompt;
+    return this.chat.getSystemPrompt();
   }
 
   /**
