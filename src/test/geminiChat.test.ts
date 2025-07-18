@@ -87,18 +87,108 @@ describe('GeminiChat', () => {
   });
 
   describe('System Prompt Management', () => {
+    it('should initialize with system prompt from constructor', () => {
+      const initialPrompt = 'You are a helpful assistant';
+      const chatWithPrompt = new GeminiChat({
+        ...mockChatConfig,
+        systemPrompt: initialPrompt,
+      });
+      expect(chatWithPrompt.getSystemPrompt()).toBe(initialPrompt);
+    });
+
+    it('should initialize with empty system prompt when not provided', () => {
+      const chatWithoutPrompt = new GeminiChat({
+        ...mockChatConfig,
+        systemPrompt: undefined,
+      });
+      expect(chatWithoutPrompt.getSystemPrompt()).toBe('');
+    });
+
     it('should set and get system prompt', () => {
       const newPrompt = 'You are a coding assistant';
       geminiChat.setSystemPrompt(newPrompt);
       expect(geminiChat.getSystemPrompt()).toBe(newPrompt);
     });
 
-    it('should handle undefined system prompt', () => {
-      const chatWithoutPrompt = new GeminiChat({
+    it('should update system prompt and persist changes', () => {
+      const originalPrompt = 'You are a helpful assistant';
+      const updatedPrompt = 'You are a specialized coding assistant';
+      
+      // Set initial system prompt
+      geminiChat.setSystemPrompt(originalPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(originalPrompt);
+      
+      // Update system prompt
+      geminiChat.setSystemPrompt(updatedPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(updatedPrompt);
+    });
+
+    it('should handle empty string as system prompt', () => {
+      const emptyPrompt = '';
+      geminiChat.setSystemPrompt(emptyPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(emptyPrompt);
+    });
+
+    it('should handle long system prompt', () => {
+      const longPrompt = 'A'.repeat(1000); // 1000 character prompt
+      geminiChat.setSystemPrompt(longPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(longPrompt);
+    });
+
+    it('should handle special characters in system prompt', () => {
+      const specialPrompt = 'You are a helpful assistant. Use emojis 🤖, symbols @#$%, and newlines:\nNew line here.';
+      geminiChat.setSystemPrompt(specialPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(specialPrompt);
+    });
+
+    it('should maintain system prompt across multiple get calls', () => {
+      const testPrompt = 'Consistent system prompt';
+      geminiChat.setSystemPrompt(testPrompt);
+      
+      // Multiple get calls should return the same value
+      expect(geminiChat.getSystemPrompt()).toBe(testPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(testPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(testPrompt);
+    });
+
+    it('should override constructor system prompt when set method is called', () => {
+      const constructorPrompt = 'Initial prompt from constructor';
+      const runtimePrompt = 'Updated prompt at runtime';
+      
+      const chatWithConstructorPrompt = new GeminiChat({
         ...mockChatConfig,
-        systemPrompt: undefined,
+        systemPrompt: constructorPrompt,
       });
-      expect(chatWithoutPrompt.getSystemPrompt()).toBeUndefined();
+      
+      expect(chatWithConstructorPrompt.getSystemPrompt()).toBe(constructorPrompt);
+      
+      // Override with setSystemPrompt
+      chatWithConstructorPrompt.setSystemPrompt(runtimePrompt);
+      expect(chatWithConstructorPrompt.getSystemPrompt()).toBe(runtimePrompt);
+    });
+
+    it('should update internal generateContentConfig when system prompt is set', () => {
+      const testPrompt = 'Test prompt for internal config';
+      geminiChat.setSystemPrompt(testPrompt);
+      
+      // Access private field for testing (using type assertion)
+      const internalConfig = (geminiChat as any).generateContentConfig;
+      expect(internalConfig.systemInstruction).toBe(testPrompt);
+    });
+
+    it('should handle system prompt in different languages', () => {
+      const chinesePrompt = '你是一个有用的助手';
+      const spanishPrompt = 'Eres un asistente útil';
+      const frenchPrompt = 'Vous êtes un assistant utile';
+      
+      geminiChat.setSystemPrompt(chinesePrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(chinesePrompt);
+      
+      geminiChat.setSystemPrompt(spanishPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(spanishPrompt);
+      
+      geminiChat.setSystemPrompt(frenchPrompt);
+      expect(geminiChat.getSystemPrompt()).toBe(frenchPrompt);
     });
   });
 
