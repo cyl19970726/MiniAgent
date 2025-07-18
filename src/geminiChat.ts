@@ -33,6 +33,7 @@ import {
   IChatConfig,
 } from './interfaces.js';
 import { TokenTracker } from './tokenTracker.js';
+import { ILogger, LogLevel, createLogger } from './logger.js';
 
 function isThinkingSupported(model: string) {
   if (model.startsWith('gemini-2.5')) return true;
@@ -63,11 +64,15 @@ export class GeminiChat implements IChat {
     generateContentStream: (request: GenerateContentParameters) => Promise<AsyncGenerator<GenerateContentResponse>>;
   };
   private generateContentConfig: GenerateContentConfig;
+  private logger: ILogger;
 
   constructor(
     private readonly chatConfig: IChatConfig,
   ) {
     this.chatConfig = chatConfig;
+    this.logger = createLogger('GeminiChat', { level: LogLevel.INFO });
+    this.logger.debug(`Initializing GeminiChat with model: ${chatConfig.modelName}`, 'GeminiChat.constructor()');
+    
     this.aiClient = new GoogleGenAI({ apiKey: chatConfig.apiKey });
     this.contentGenerator = this.aiClient.models;
     this.history = [...chatConfig.initialHistory || []];
@@ -89,7 +94,6 @@ export class GeminiChat implements IChat {
             // Convert Type enum values (uppercase) to lowercase for Gemini API
             declaration.parameters = this.convertTypesToLowercase(tool.parameters);
           }
-          console.log('[GEMINI_CHAT][Constructor] tool parameters:', tool.parameters);
 
           return declaration;
         })
@@ -136,6 +140,12 @@ export class GeminiChat implements IChat {
     
     this.isCurrentlyProcessing = true;
     
+    const messagePreview = typeof message.content === 'string' 
+      ? message.content.slice(0, 100) + (message.content.length > 100 ? '...' : '')
+      : `${message.content.length} content parts`;
+    
+    this.logger.info(`Sending message stream (${promptId}): ${messagePreview}`, 'GeminiChat.sendMessageStream()');
+    
     try {
       // Convert our message format to Gemini format
       const userContent = this.convertToGeminiContent(message.content, 'user');
@@ -143,6 +153,8 @@ export class GeminiChat implements IChat {
       
       requestContents = requestContents.concat([userContent]);
 
+      this.logger.debug(`Request contains ${requestContents.length} content items`, 'GeminiChat.sendMessageStream()');
+      
       // Create request (system prompt will be handled via conversation history)
       // Deep clone the config to avoid mutations
       const requestConfig = JSON.parse(JSON.stringify(this.generateContentConfig));
@@ -152,10 +164,8 @@ export class GeminiChat implements IChat {
         contents: requestContents,
         config: requestConfig,
       };
-      console.log('[GEMINI_CHAT] request generateContentConfig tools:', (requestConfig.tools?.[0] as any)?.functionDeclarations?.[0]);
-      console.log('[GEMINI_CHAT] Full request config:', JSON.stringify(requestConfig, null, 2));
-      console.log('[GEMINI_CHAT] Request contents:', JSON.stringify(requestContents, null, 2));
 
+      this.logger.debug(`Calling Gemini API with model: ${this.chatConfig.modelName}`, 'GeminiChat.sendMessageStream()');
       const streamResponse = await this.contentGenerator.generateContentStream(request);
       const result = this.processStreamResponse(streamResponse, this.convertFromGeminiContent(userContent), promptId);
       
@@ -165,6 +175,7 @@ export class GeminiChat implements IChat {
       return result;
     } catch (error) {
       this.isCurrentlyProcessing = false;
+      this.logger.error(`Error in sendMessageStream: ${error instanceof Error ? error.message : String(error)}`, 'GeminiChat.sendMessageStream()');
       throw error;
     }
   }
@@ -188,23 +199,30 @@ export class GeminiChat implements IChat {
     const outputContent: ConversationContent[] = [];
     let errorOccurred = false;
     let responseId = 0;
+    let chunkCount = 0;
+
+    this.logger.debug(`Processing stream response for prompt: ${promptId}`, 'GeminiChat.processStreamResponse()');
 
     try {
       // Handle streaming response from the API
       for await (const chunk of streamResponse) {
+        chunkCount++;
+        
         // Update token tracking with each chunk
         if (chunk.usageMetadata) {
           this.tokenTracker.updateUsage({
             inputTokens: chunk.usageMetadata.promptTokenCount || 0,
             outputTokens: chunk.usageMetadata.candidatesTokenCount || 0,
           });
+          
+          this.logger.debug(`Token usage updated - Input: ${chunk.usageMetadata.promptTokenCount}, Output: ${chunk.usageMetadata.candidatesTokenCount}`, 'GeminiChat.processStreamResponse()');
         }
 
         const parts = chunk.candidates?.[0]?.content?.parts;
-        console.log('[GEMINI_CHAT] chunk parts:', parts);
 
         // Skip chunks without parts (can happen during streaming)
         if (!parts || parts.length === 0) {
+          this.logger.debug(`Skipping chunk ${chunkCount} - no parts`, 'GeminiChat.processStreamResponse()');
           continue;
         }
 
@@ -218,12 +236,16 @@ export class GeminiChat implements IChat {
         
         yield llmResponse;
       }
+      
+      this.logger.debug(`Stream processing completed - ${chunkCount} chunks processed, ${outputContent.length} valid responses`, 'GeminiChat.processStreamResponse()');
     } catch (error) {
       errorOccurred = true;
+      this.logger.error(`Error processing stream response: ${error instanceof Error ? error.message : String(error)}`, 'GeminiChat.processStreamResponse()');
       throw error;
     } finally {
       if (!errorOccurred) {
         // Update history after successful streaming
+        this.logger.debug(`Recording history - input + ${outputContent.length} responses`, 'GeminiChat.processStreamResponse()');
         this.recordHistory(inputContent, outputContent);
       }
       this.isCurrentlyProcessing = false;
@@ -572,7 +594,6 @@ export class GeminiChat implements IChat {
         };
       }
       if ('functionCall' in part) {
-        console.log('[GEMINI_CHAT][convertFromGeminiContent] functionCall', part.functionCall!);
         return {
           type: 'function_call',
           functionCall: {

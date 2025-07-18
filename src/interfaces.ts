@@ -8,6 +8,7 @@
 
 // Import Schema from genai for tool parameter definitions
 import { Schema } from '@google/genai';
+import { ILogger, LogLevel } from './logger.js';
 
 // ============================================================================
 // CORE DATA TYPES - Platform agnostic
@@ -809,6 +810,10 @@ export interface IAgentConfig {
   maxHistoryTokens?: number;
   /** Enable debug mode */
   debugMode?: boolean;
+  /** Logger instance for this agent */
+  logger?: ILogger;
+  /** Log level for this agent */
+  logLevel?: LogLevel;
 }
 
 

@@ -15,6 +15,8 @@ import {
   AgentEvent,
   AllConfig,
   ITool,
+  LogLevel,
+  configureLogger,
 } from '../src/index.js';
 
 import { Type } from '@google/genai';
@@ -35,6 +37,21 @@ function createAgent(config: AllConfig, tools: ITool[]): StandardAgent {
 async function main() {
   console.log('🚀 Agent Framework Basic Example');
   console.log('================================\n');
+
+  // Configure logger based on environment
+  const logLevel = process.env.LOG_LEVEL?.toUpperCase() as keyof typeof LogLevel;
+  const finalLogLevel = logLevel && LogLevel[logLevel] !== undefined ? LogLevel[logLevel] : LogLevel.INFO;
+  
+  configureLogger({
+    level: finalLogLevel,
+    autoDetectContext: true,
+    includeTimestamp: true,
+    enableColors: true,
+  });
+
+  console.log(`🪵 Logger Level: ${LogLevel[finalLogLevel]}`);
+  console.log('   Set LOG_LEVEL environment variable (NONE|ERROR|WARN|INFO|DEBUG) to change');
+  console.log('');
 
   // Check for API key
   const apiKey = process.env.GEMINI_API_KEY;

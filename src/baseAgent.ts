@@ -26,6 +26,7 @@ import {
   ChatMessage,
   ITool,
 } from './interfaces.js';
+import { ILogger, LogLevel, createLogger } from './logger.js';
 
 /**
  * BaseAgent implementation that connects all core interfaces
@@ -76,6 +77,9 @@ export abstract class BaseAgent implements IAgent {
   
   /** Current system prompt, if set */
   private systemPrompt?: string;
+  
+  /** Logger instance for this agent */
+  protected logger: ILogger;
 
   /**
    * Constructor for BaseAgent
@@ -89,7 +93,12 @@ export abstract class BaseAgent implements IAgent {
     protected chat: IChat,
     protected toolScheduler: IToolScheduler,
   ) {
+    // Initialize logger
+    this.logger = agentConfig.logger || createLogger('BaseAgent', {
+      level: agentConfig.logLevel || LogLevel.INFO,
+    });
     
+    this.logger.debug('BaseAgent initialized', 'BaseAgent.constructor()');
     this.setupEventHandlers();
   }
 
@@ -157,11 +166,13 @@ export abstract class BaseAgent implements IAgent {
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent> {
     if (this.isRunning) {
+      this.logger.warn('Agent is already processing a request', 'BaseAgent.process()');
       yield this.createErrorEvent('Agent is already processing a request');
       return;
     }
 
     this.isRunning = true;
+    this.logger.info(`Starting to process user input: "${userInput.slice(0, 50)}${userInput.length > 50 ? '...' : ''}"`, 'BaseAgent.process()');
     
     try {
       // 1. Create initial user content
@@ -181,6 +192,8 @@ export abstract class BaseAgent implements IAgent {
 
       // 3. Process turns until no more tool calls
       while (!abortSignal.aborted) {
+        this.logger.debug(`Processing turn ${this.currentTurn + 1}`, 'BaseAgent.process()');
+        
         // Process one turn
         let hasToolCalls = false;
         let toolCallResponses: ToolCallResponse[] = [];
@@ -198,19 +211,23 @@ export abstract class BaseAgent implements IAgent {
 
         // If no tool calls in this turn, we're done
         if (!hasToolCalls) {
+          this.logger.debug('No tool calls in this turn, conversation complete', 'BaseAgent.process()');
           break;
         }
 
+        this.logger.debug(`Turn completed with ${toolCallResponses.length} tool call responses`, 'BaseAgent.process()');
+        
         // 4. Convert tool call responses to chat message for next turn
         currentChatMessage = this.convertToolCallResponsesToChatMessage(toolCallResponses);
-        console.log('[BASE_AGENT] Will continue with tool responses as next turn input');
       }
 
     } catch (error) {
+      this.logger.error(`Error during processing: ${error instanceof Error ? error.message : String(error)}`, 'BaseAgent.process()');
       yield this.createErrorEvent(error instanceof Error ? error.message : String(error));
     } finally {
       this.isRunning = false;
       this.lastUpdateTime = Date.now();
+      this.logger.debug('Processing completed', 'BaseAgent.process()');
     }
   }
 
@@ -233,9 +250,11 @@ export abstract class BaseAgent implements IAgent {
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent> {
     this.currentTurn++;
+    this.logger.debug(`Starting turn ${this.currentTurn}`, 'BaseAgent.processOneTurn()');
     
     try {
       const promptId = this.generatePromptId();
+      this.logger.debug(`Generated prompt ID: ${promptId}`, 'BaseAgent.processOneTurn()');
       const responseStream = await this.chat.sendMessageStream(chatMessage, promptId);
 
       // Process streaming response
@@ -243,7 +262,6 @@ export abstract class BaseAgent implements IAgent {
       const toolCalls: IToolCallRequestInfo[] = [];
       
       for await (const chunk of responseStream) {
-        console.log('[BASE_AGENT] chat response chunk parts:', chunk.content.parts);
         if (abortSignal.aborted) break;
 
         // Extract content from chunk
@@ -260,7 +278,6 @@ export abstract class BaseAgent implements IAgent {
         }
         // Extract tool calls from chunk
         const chunkToolCalls = this.extractToolCallsFromChunk(chunk);
-        console.log('[BASE_AGENT] Extracted tool calls:', chunkToolCalls);
         if (chunkToolCalls.length > 0) {
           toolCalls.push(...chunkToolCalls);
         }
@@ -277,10 +294,12 @@ export abstract class BaseAgent implements IAgent {
 
       // Execute tools if any were found
       if (toolCalls.length > 0) {
+        this.logger.info(`Executing ${toolCalls.length} tool calls`, 'BaseAgent.processOneTurn()');
         yield* this.executeTools(toolCalls, sessionId, abortSignal);
       }
 
       // Emit completion event
+      this.logger.debug(`Turn ${this.currentTurn} completed with ${toolCalls.length} tool calls`, 'BaseAgent.processOneTurn()');
       yield this.createEvent(AgentEventType.Content, {
         type: 'turn_complete',
         sessionId,
@@ -290,6 +309,7 @@ export abstract class BaseAgent implements IAgent {
       });
 
     } catch (error) {
+      this.logger.error(`Error in turn ${this.currentTurn}: ${error instanceof Error ? error.message : String(error)}`, 'BaseAgent.processOneTurn()');
       yield this.createErrorEvent(error instanceof Error ? error.message : String(error));
     } finally {
       this.isRunning = false;
@@ -321,8 +341,11 @@ export abstract class BaseAgent implements IAgent {
     sessionId: string,
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent> {
+    this.logger.debug(`Executing ${toolCalls.length} tools: ${toolCalls.map(tc => tc.name).join(', ')}`, 'BaseAgent.executeTools()');
+    
     // Emit tool call request events
     for (const toolCall of toolCalls) {
+      this.logger.debug(`Emitting tool call request: ${toolCall.name} (${toolCall.callId})`, 'BaseAgent.executeTools()');
       const toolCallRequest: ToolCallRequest = {
         callId: toolCall.callId,
         name: toolCall.name,
@@ -339,13 +362,19 @@ export abstract class BaseAgent implements IAgent {
     }
 
     // Schedule tools for execution
+    this.logger.debug('Scheduling tools for execution', 'BaseAgent.executeTools()');
     await this.toolScheduler.schedule(toolCalls, abortSignal);
 
     // Wait for completion and get only current turn's completed calls
+    this.logger.debug('Waiting for tool completion', 'BaseAgent.executeTools()');
     const completedCalls = await this.waitForCurrentToolCompletion(toolCalls, abortSignal);
 
     // Process completed tools
+    this.logger.info(`Processing ${completedCalls.length} completed tool calls`, 'BaseAgent.executeTools()');
     for (const completedCall of completedCalls) {
+      const status = completedCall.response.error ? 'error' : 'success';
+      this.logger.debug(`Tool ${completedCall.request.name} (${completedCall.request.callId}) completed with status: ${status}`, 'BaseAgent.executeTools()');
+      
       const toolCallResponse: ToolCallResponse = {
         callId: completedCall.request.callId,
         content: this.convertToolResultToContent(completedCall),
@@ -362,6 +391,7 @@ export abstract class BaseAgent implements IAgent {
 
     // Add tool results to chat history
     if (completedCalls.length > 0) {
+      this.logger.debug(`Adding ${completedCalls.length} tool results to chat history`, 'BaseAgent.executeTools()');
       const toolResultContent = this.convertToolCallsToContent(completedCalls);
       this.chat.addHistory(toolResultContent);
     }
@@ -405,35 +435,6 @@ export abstract class BaseAgent implements IAgent {
     ) as ICompletedToolCall[];
   }
 
-  /**
-   * Wait for tool completion with timeout (legacy method)
-   * 
-   * This method waits for all scheduled tools to complete execution.
-   * It implements a timeout mechanism to prevent hanging and respects
-   * abort signals for graceful cancellation.
-   * 
-   * @param abortSignal - Signal to abort waiting
-   * @returns Promise resolving to array of completed tool calls
-   * 
-   * @private
-   */
-  private async waitForToolCompletion(abortSignal: AbortSignal): Promise<ICompletedToolCall[]> {
-    const maxWaitTime = 30000; // 30 seconds
-    const startTime = Date.now();
-    
-    while (this.toolScheduler.isRunning() && !abortSignal.aborted) {
-      if (Date.now() - startTime > maxWaitTime) {
-        this.toolScheduler.cancelAll('Timeout waiting for tool completion');
-        break;
-      }
-      await this.wait(100);
-    }
-
-    // Return completed calls (this would need to be implemented in IToolScheduler)
-    return this.toolScheduler.getCurrentToolCalls().filter(
-      call => call.status === 'success' || call.status === 'error' || call.status === 'cancelled'
-    ) as ICompletedToolCall[];
-  }
 
   /**
    * Create user content from input
@@ -539,7 +540,6 @@ export abstract class BaseAgent implements IAgent {
       },
     };
 
-    console.log('[BASE_AGENT] Created function response part:', resultPart);
 
     return [resultPart];
   }
@@ -580,7 +580,6 @@ export abstract class BaseAgent implements IAgent {
       parts.push(...toolCallResponse.content);
     }
 
-    console.log('[BASE_AGENT] Converting tool responses to chat message:', parts);
 
     return {
       content: parts,

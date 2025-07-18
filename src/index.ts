@@ -53,6 +53,7 @@ export type {
   IAllToolCallsCompleteHandler,
   IToolCallsUpdateHandler,
   
+  
   // Turn interfaces
   ITurn,
   ToolCallRequest,
@@ -76,6 +77,13 @@ export {
   ToolConfirmationOutcome,
   ToolCallStatus,
 } from './interfaces.js';
+
+export {
+  LogLevel,
+  // Logger interfaces
+  ILogger,
+  ILoggerConfig,
+} from './logger.js';
 
 // ============================================================================
 // TYPE GUARDS
@@ -112,6 +120,16 @@ export {
   BaseTool,
   SimpleTool,
 } from './baseTool.js';
+
+// Logger implementation
+export {
+  Logger,
+  getLogger,
+  setLogger,
+  configureLogger,
+  createLogger,
+  logMethod,
+} from './logger.js';
 
 // ============================================================================
 // UTILITIES
