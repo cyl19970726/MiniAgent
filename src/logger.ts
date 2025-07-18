@@ -71,7 +71,7 @@ const Colors = {
  */
 export class Logger implements ILogger {
   private config: ILoggerConfig;
-  private context?: string;
+  private context: string | undefined;
 
   constructor(config: Partial<ILoggerConfig> = {}, context?: string) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -361,7 +361,7 @@ export function logMethod(level: LogLevel = LogLevel.DEBUG) {
       // New decorator syntax or property decorator
       return function (value: any, context: any) {
         if (typeof value === 'function') {
-          return function (...args: any[]) {
+          return function (this: any, ...args: any[]) {
             const logger = getLogger();
             const className = context.name || 'Unknown';
             const contextStr = `${className}.${propertyKey}()`;
