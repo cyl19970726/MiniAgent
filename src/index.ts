@@ -80,6 +80,9 @@ export {
 
 export {
   LogLevel,
+} from './logger.js';
+
+export type {
   // Logger interfaces
   ILogger,
   ILoggerConfig,
