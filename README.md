@@ -2,124 +2,175 @@
 
 A platform-agnostic agent framework for building autonomous AI agents with tool execution capabilities.
 
-## Current Status
+## Features
 
-### ✅ Completed
-- **Core Interface Design**: Comprehensive interfaces in `interfaces.ts` with clear documentation
-- **BaseAgent Implementation**: Complete agent class that connects all interfaces with detailed comments
-- **Testing Framework**: Vitest configuration with test utilities
-- **Documentation**: Framework architecture and implementation plan
-- **Project Structure**: Clean, focused directory structure
+### LLM Providers
+- [x] Gemini
+- [ ] Vercel
+- [ ] OpenAI
+- [ ] Anthropic
 
-### 🔄 In Progress
-- **GeminiChat Implementation**: Basic structure exists, needs completion based on core package
-- **Interface Documentation**: All interfaces have English comments and clear descriptions
-
-### 📋 Next Steps
-- Implement `TokenTracker` class for real-time token tracking
-- Implement `AgentEvent` system for event emission and handling
-- Complete `GeminiChat` implementation with proper streaming support
-- Create comprehensive test suite for all components
-- Implement `CoreToolScheduler` for tool execution
+### Core Features
+- [x] ChatHistory
+- [x] eventStream
+- [x] streaming
+- [x] toolScheduler
 
 ## Key Design Principles
 
-1. **Reference, Not Depend**: We reference core package implementations but create our own versions
-2. **Interface-First**: All implementations strictly follow defined interfaces
-3. **Test-Driven**: Every implementation file has corresponding test file
-4. **English Comments**: All code uses English with comprehensive documentation
-5. **Streaming-First**: Real-time responses with comprehensive event emission
+1. **Streaming-First**: We only support streaming because streaming can implement call functionality
+2. **Interface-Driven**: Pre-defined interfaces with core implementation by BaseAgent
+3. **Platform-Agnostic**: Clean abstractions that work with any LLM provider
+4. **Event-Based**: Comprehensive event system for real-time monitoring
 
 ## Architecture
+
 <img width="5048" height="4694" alt="image" src="https://github.com/user-attachments/assets/224fc7b5-994c-4a3b-8aa0-174518967e45" />
 
 ```
-BaseAgent (connects all interfaces)
-├── IChat (GeminiChat) - conversation management
-├── IToolScheduler (CoreToolScheduler) - tool execution
-├── ITokenTracker (TokenTracker) - token monitoring
-└── AgentEvent - event system
+BaseAgent (Core Implementation)
+├── IChat (LLM Interface)
+│   └── GeminiChat (Gemini Provider Implementation)
+├── IToolScheduler (Tool Execution)
+│   └── CoreToolScheduler
+├── ITokenTracker (Token Monitoring)
+│   └── TokenTracker
+└── AgentEvent (Event System)
 ```
+
+### Core Components
+
+- **BaseAgent**: Main orchestrator that connects all interfaces
+- **IChat**: Streaming-first chat interface for LLM communication
+- **IToolScheduler**: Manages tool execution with confirmation workflows
+- **ITokenTracker**: Real-time token usage tracking
+- **AgentEvent**: Event emission for monitoring agent behavior
 
 ## Usage Example
 
+### Define Custom Tools
+
 ```typescript
-import { BaseAgent, GeminiChat, CoreToolScheduler } from '@gemini-tool/agent';
+import { BaseTool, ToolResult } from '@gemini-tool/agent';
+import { Type } from '@google/genai';
 
-// Create agent with all required components
-const agent = new BaseAgent(config, chat, toolScheduler);
+// Define a weather tool
+export class WeatherTool extends BaseTool<{ latitude: number; longitude: number }> {
+  constructor() {
+    super(
+      'get_weather',                    // Tool name
+      'Weather Tool',                   // Display name
+      'Get current weather temperature', // Description
+      {
+        type: Type.OBJECT,
+        properties: {
+          latitude: {
+            type: Type.NUMBER,
+            description: 'Latitude coordinate'
+          },
+          longitude: {
+            type: Type.NUMBER,
+            description: 'Longitude coordinate'
+          }
+        },
+        required: ['latitude', 'longitude']
+      },
+      false, // isOutputMarkdown
+      true   // canUpdateOutput
+    );
+  }
 
-// Set up event monitoring
-agent.onEvent('logger', (event) => {
-  console.log(`[${event.type}] ${event.data}`);
-});
+  validateToolParams(params: { latitude: number; longitude: number }): string | null {
+    if (params.latitude < -90 || params.latitude > 90) {
+      return 'Latitude must be between -90 and 90';
+    }
+    return null;
+  }
 
-// Process user input with streaming
-const abortController = new AbortController();
-for await (const event of agent.process('Hello', 'session-1', abortController.signal)) {
-  // Handle real-time events
-  if (event.type === AgentEventType.Content) {
-    console.log(event.data);
+  async execute(
+    params: { latitude: number; longitude: number },
+    abortSignal: AbortSignal,
+    outputUpdateHandler?: (output: string) => void
+  ): Promise<ToolResult> {
+    // Fetch weather data...
+    const temperature = await this.fetchWeatherData(params.latitude, params.longitude);
+    
+    return this.createResult(
+      `Weather: ${temperature}°C`,           // LLM content
+      `🌤️ Temperature: ${temperature}°C`,    // Display content
+      `Retrieved weather: ${temperature}°C`  // Summary
+    );
   }
 }
 ```
 
-## Running Examples
+### Use Agent with Tools
 
-### Demo Example (No API Key Required)
-```bash
-npm run demo
-```
-This runs a complete demonstration of the framework using mocked responses, showcasing:
-- GeminiChat with mock responses
-- CoreToolScheduler with a calculator tool
-- TokenTracker with usage monitoring
-- AgentEventSystem with real-time events
+```typescript
+import { StandardAgent, AgentEventType, AllConfig } from '@gemini-tool/agent';
 
-### Basic Example (Requires API Key)
-```bash
-export GEMINI_API_KEY="your-api-key-here"
-npm run example
-```
-This runs a real example using the Gemini API.
+// Configure agent
+const config: AllConfig = {
+  agentConfig: {
+    model: 'gemini-2.0-flash',
+    workingDirectory: process.cwd(),
+    apiKey: process.env.GEMINI_API_KEY,
+    sessionId: 'demo-session',
+    maxHistoryTokens: 100000,
+  },
+  chatConfig: {
+    apiKey: process.env.GEMINI_API_KEY,
+    modelName: 'gemini-2.0-flash',
+    tokenLimit: 100000,
+    systemPrompt: 'You are a helpful assistant with weather and calculation tools.',
+  },
+  toolSchedulerConfig: {
+    approvalMode: 'yolo', // Auto-approve for demo
+  },
+};
 
-## Testing
+// Create agent with tools
+const agent = new StandardAgent(
+  [new WeatherTool(), new SubtractionTool()], 
+  config
+);
 
-```bash
-# Run all tests
-npm test
+// Process user input with streaming
+const userInput = 'Get weather for Beijing and Shanghai, then calculate the temperature difference';
+const abortController = new AbortController();
 
-# Run tests with coverage
-npm run test:coverage
-
-# Watch mode for development
-npm run test:watch
+for await (const event of agent.process(userInput, 'session-123', abortController.signal)) {
+  switch (event.type) {
+    case AgentEventType.Content:
+      if (event.data.type === 'assistant_chunk') {
+        process.stdout.write(event.data.content);
+      }
+      break;
+    case AgentEventType.ToolCallRequest:
+      console.log(`🔧 Tool: ${event.data.toolCall.name}`);
+      break;
+    case AgentEventType.TokenUsage:
+      console.log(`📊 Tokens: ${event.data.usage.totalTokens}`);
+      break;
+  }
+}
 ```
 
 ## Directory Structure
 
 ```
 src/
-├── interfaces.ts         # Core interfaces (complete)
-├── baseAgent.ts          # Main agent implementation (complete)
-├── geminiChat.ts         # Chat implementation (in progress)
-├── tokenTracker.ts       # Token tracking (planned)
-├── agentEvent.ts         # Event system (planned)
-├── coreToolScheduler.ts  # Tool scheduler (planned)
-├── index.ts             # Main exports
-└── test/
-    ├── setup.ts         # Test configuration
-    └── *.test.ts        # Test files
+├── interfaces.ts         # Core interface definitions
+├── baseAgent.ts          # Base agent implementation
+├── geminiAgent.ts        # Gemini-specific agent
+├── geminiChat.ts         # Gemini chat provider
+├── tokenTracker.ts       # Token usage tracking
+├── coreToolScheduler.ts  # Tool execution scheduler
+├── logger.ts             # Logging system
+├── index.ts              # Public API exports
+├── tools/                # Built-in tools
+│   └── calculator.ts     # Calculator tool example
+└── test/                 # Test files
+    ├── setup.ts          # Test configuration
+    └── *.test.ts         # Unit tests
 ```
-
-## Implementation Plan
-
-See [plan.md](plan.md) for detailed implementation roadmap and [framework.md](framework.md) for architecture documentation.
-
-## Contributing
-
-1. All implementations must follow the defined interfaces
-2. Every implementation needs corresponding test file
-3. Use English comments throughout
-4. Reference core package patterns but create independent implementations
-5. Maintain comprehensive documentation
