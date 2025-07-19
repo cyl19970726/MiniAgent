@@ -109,7 +109,7 @@ export class WeatherTool extends BaseTool<{ latitude: number; longitude: number 
 ```typescript
 import { StandardAgent, AgentEventType, AllConfig } from '@gemini-tool/agent';
 
-// Configure agent
+// Configure agent with tool execution callbacks
 const config: AllConfig = {
   agentConfig: {
     model: 'gemini-2.0-flash',
@@ -126,6 +126,24 @@ const config: AllConfig = {
   },
   toolSchedulerConfig: {
     approvalMode: 'yolo', // Auto-approve for demo
+    
+    // Optional: Subscribe to tool execution events
+    onToolCallsUpdate: (toolCalls) => {
+      // Called whenever tool state changes
+      toolCalls.forEach(call => {
+        console.log(`[${call.request.name}] Status: ${call.status}`);
+      });
+    },
+    
+    outputUpdateHandler: (callId, output) => {
+      // Called for real-time tool output
+      console.log(`Tool output: ${output}`);
+    },
+    
+    onAllToolCallsComplete: (completedCalls) => {
+      // Called when all tools finish
+      console.log(`Completed ${completedCalls.length} tool calls`);
+    }
   },
 };
 
@@ -155,6 +173,118 @@ for await (const event of agent.process(userInput, 'session-123', abortControlle
   }
 }
 ```
+
+## Tool Execution Callbacks
+
+The agent framework provides three callbacks to monitor tool execution:
+
+### 1. `onToolCallsUpdate` - State Change Notifications
+Called whenever any tool changes state (validating → scheduled → executing → success/error):
+
+```typescript
+onToolCallsUpdate: (toolCalls: IToolCall[]) => {
+  toolCalls.forEach(call => {
+    if (call.status === 'awaiting_approval') {
+      // Handle tool confirmation UI
+      showConfirmationDialog(call);
+    }
+  });
+}
+```
+
+### 2. `outputUpdateHandler` - Real-time Output
+Called during tool execution for streaming output:
+
+```typescript
+outputUpdateHandler: (callId: string, output: string) => {
+  // Stream output to UI or logs
+  appendToToolOutput(callId, output);
+}
+```
+
+### 3. `onAllToolCallsComplete` - Completion Handler
+Called once when all tools finish execution:
+
+```typescript
+onAllToolCallsComplete: (completedCalls: ICompletedToolCall[]) => {
+  // Show execution summary
+  const summary = completedCalls.map(tc => 
+    `${tc.request.name}: ${tc.status} (${tc.durationMs}ms)`
+  ).join('\n');
+  console.log(summary);
+}
+```
+
+### Handling Tool Confirmations
+
+When `approvalMode` is not 'yolo', tools may require user confirmation:
+
+```typescript
+const config: AllConfig = {
+  // ... other config
+  toolSchedulerConfig: {
+    approvalMode: 'default', // Requires confirmation for destructive operations
+    
+    onToolCallsUpdate: async (toolCalls) => {
+      const waitingTools = toolCalls.filter(
+        tc => tc.status === 'awaiting_approval'
+      );
+      
+      for (const tool of waitingTools) {
+        const approved = await showConfirmationUI(tool);
+        
+        // Respond to the agent
+        agent.toolScheduler.handleConfirmationResponse(
+          tool.request.callId,
+          approved ? ToolConfirmationOutcome.ProceedOnce : ToolConfirmationOutcome.Cancel
+        );
+      }
+    }
+  }
+};
+```
+
+### Complete Example with Tool Monitoring
+
+```typescript
+class ToolMonitor {
+  private toolStates = new Map<string, string>();
+  
+  createConfig(): AllConfig {
+    return {
+      // ... agent and chat config
+      toolSchedulerConfig: {
+        onToolCallsUpdate: (toolCalls) => {
+          toolCalls.forEach(call => {
+            const prev = this.toolStates.get(call.request.callId);
+            if (prev !== call.status) {
+              console.log(`[${call.request.name}] ${prev || 'new'} → ${call.status}`);
+              this.toolStates.set(call.request.callId, call.status);
+            }
+          });
+        },
+        
+        outputUpdateHandler: (callId, output) => {
+          console.log(`[Output] ${output}`);
+        },
+        
+        onAllToolCallsComplete: (completed) => {
+          console.log(`\nExecution Summary:`);
+          completed.forEach(tc => {
+            console.log(`- ${tc.request.name}: ${tc.status} (${tc.durationMs}ms)`);
+          });
+          this.toolStates.clear();
+        }
+      }
+    };
+  }
+}
+
+const monitor = new ToolMonitor();
+const agent = new StandardAgent(tools, monitor.createConfig());
+```
+
+For more detailed documentation on tool callbacks, see [agent_subscribe_tools.md](./docs/agent_subscribe_tools.md).
 
 ## Directory Structure
 
