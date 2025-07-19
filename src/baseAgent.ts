@@ -151,7 +151,7 @@ export abstract class BaseAgent implements IAgent {
    * ```typescript
    * const abortController = new AbortController();
    * for await (const event of agent.process('Hello', 'session-1', abortController.signal)) {
-   *   if (event.type === AgentEventType.Content) {
+   *   if (event.type === AgentEventType.AssistantMessage) {
    *     console.log(event.data);
    *   }
    * }
@@ -175,7 +175,7 @@ export abstract class BaseAgent implements IAgent {
       // 1. Create initial user content
       const userContent = this.createUserContent(userInput, sessionId);
       
-      yield this.createEvent(AgentEventType.Content, {
+      yield this.createEvent(AgentEventType.UserMessage, {
         type: 'user_input',
         content: userInput,
         sessionId,
@@ -266,7 +266,7 @@ export abstract class BaseAgent implements IAgent {
         if (chunkContent) {
           fullResponse += chunkContent;
           
-          yield this.createEvent(AgentEventType.Content, {
+          yield this.createEvent(AgentEventType.AssistantMessage, {
             type: 'assistant_chunk',
             content: chunkContent,
             sessionId,
@@ -297,7 +297,7 @@ export abstract class BaseAgent implements IAgent {
 
       // Emit completion event
       this.logger.debug(`Turn ${this.currentTurn} completed with ${toolCalls.length} tool calls`, 'BaseAgent.processOneTurn()');
-      yield this.createEvent(AgentEventType.Content, {
+      yield this.createEvent(AgentEventType.TurnComplete, {
         type: 'turn_complete',
         sessionId,
         turn: this.currentTurn,
@@ -674,7 +674,7 @@ export abstract class BaseAgent implements IAgent {
   clearHistory(): void {
     this.chat.clearHistory();
     this.currentTurn = 0;
-    this.emitEvent(this.createEvent(AgentEventType.Content, {
+    this.emitEvent(this.createEvent(AgentEventType.HistoryCleared, {
       type: 'history_cleared',
       timestamp: Date.now(),
     }));
@@ -685,7 +685,7 @@ export abstract class BaseAgent implements IAgent {
    */
   setSystemPrompt(systemPrompt: string): void {
     this.chat.setSystemPrompt(systemPrompt);
-    this.emitEvent(this.createEvent(AgentEventType.Content, {
+    this.emitEvent(this.createEvent(AgentEventType.SystemPromptSet, {
       type: 'system_prompt_set',
       systemPrompt,
       timestamp: Date.now(),

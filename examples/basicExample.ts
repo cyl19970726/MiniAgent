@@ -132,14 +132,24 @@ When users ask about weather or temperature differences between cities, use the 
     
     for await (const event of events) {
       switch (event.type) {
-        case AgentEventType.Content:
+        case AgentEventType.AssistantMessage:
           // Content is already logged by the processing
           console.log('🤖 Assistant Response:',event.data);
+          break;
+        case AgentEventType.UserMessage:
+          console.log('👤 User message:',event.data);
+          break;
+        case AgentEventType.TurnComplete:
+          console.log('🛞 Turn complete:',event.data);
           break;
         case AgentEventType.ToolCallRequest:
           const toolData = event.data as any;
           console.log(`\n🔧 Tool requested: ${toolData.toolCall.name}`);
           console.log(`   Args: ${JSON.stringify(toolData.toolCall.args)}`);
+          break;
+        case AgentEventType.ToolCallResponse:
+          const toolResponseData = event.data as any;
+          console.log(`\n🔧 Tool response: ${toolResponseData}`);
           break;
         case AgentEventType.TokenUsage:
           const tokenData = event.data as any;

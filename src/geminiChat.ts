@@ -136,15 +136,39 @@ export class GeminiChat implements IChat {
     message: ChatMessage,
     promptId: string,
   ): Promise<AsyncGenerator<LLMResponse>> {
+    // Return immediately with an AsyncGenerator that handles initialization internally
+    return this.createStreamingResponse(message, promptId);
+  }
+
+  /**
+   * Create streaming response with internal initialization
+   * 
+   * This method immediately returns an AsyncGenerator and handles all initialization
+   * (connection, auth, retries) internally within the generator. This eliminates
+   * the initial await delay and provides true streaming from the first moment.
+   */
+  private async *createStreamingResponse(
+    message: ChatMessage,
+    promptId: string,
+  ): AsyncGenerator<LLMResponse> {
     await this.sendPromise;
     
     this.isCurrentlyProcessing = true;
+    
+    // Create a promise to track completion and set it immediately
+    let completionResolve!: () => void;
+    let completionReject!: (error: any) => void;
+    
+    this.sendPromise = new Promise<void>((resolve, reject) => {
+      completionResolve = resolve;
+      completionReject = reject;
+    });
     
     const messagePreview = typeof message.content === 'string' 
       ? message.content.slice(0, 100) + (message.content.length > 100 ? '...' : '')
       : `${message.content.length} content parts`;
     
-    this.logger.info(`Sending message stream (${promptId}): ${messagePreview}`, 'GeminiChat.sendMessageStream()');
+    this.logger.info(`Sending message stream (${promptId}): ${messagePreview}`, 'GeminiChat.createStreamingResponse()');
     
     try {
       // Convert our message format to Gemini format
@@ -153,7 +177,7 @@ export class GeminiChat implements IChat {
       
       requestContents = requestContents.concat([userContent]);
 
-      this.logger.debug(`Request contains ${requestContents.length} content items`, 'GeminiChat.sendMessageStream()');
+      this.logger.debug(`Request contains ${requestContents.length} content items`, 'GeminiChat.createStreamingResponse()');
       
       // Create request (system prompt will be handled via conversation history)
       // Deep clone the config to avoid mutations
@@ -165,33 +189,33 @@ export class GeminiChat implements IChat {
         config: requestConfig,
       };
 
-      this.logger.debug(`Calling Gemini API with model: ${this.chatConfig.modelName}`, 'GeminiChat.sendMessageStream()');
+      this.logger.debug(`Calling Gemini API with model: ${this.chatConfig.modelName}`, 'GeminiChat.createStreamingResponse()');
+      
+      // Initialize the stream inside the generator - this is where the await happens
+      // But from the caller's perspective, streaming has already begun
       const streamResponse = await this.contentGenerator.generateContentStream(request);
-      const result = this.processStreamResponse(streamResponse, this.convertFromGeminiContent(userContent), promptId);
       
-      // Update sendPromise to track completion
-      this.sendPromise = this.waitForStreamCompletion(result);
+      // Now stream the actual responses
+      yield* this.processStreamResponseInternal(streamResponse, this.convertFromGeminiContent(userContent), promptId);
       
-      return result;
+      // Stream completed successfully
+      completionResolve();
+      
     } catch (error) {
       this.isCurrentlyProcessing = false;
-      this.logger.error(`Error in sendMessageStream: ${error instanceof Error ? error.message : String(error)}`, 'GeminiChat.sendMessageStream()');
+      this.logger.error(`Error in createStreamingResponse: ${error instanceof Error ? error.message : String(error)}`, 'GeminiChat.createStreamingResponse()');
+      completionReject(error);
       throw error;
     }
   }
 
   /**
-   * Process streaming response and update history
+   * Internal stream processing without separate async generator return
    * 
-   * Converts Gemini's streaming response to our LLMResponse format
-   * and manages conversation history updates.
-   * 
-   * @param streamResponse - Gemini's streaming response
-   * @param inputContent - User input in our format
-   * @param promptId - Prompt identifier
-   * @returns AsyncGenerator yielding our LLMResponse objects
+   * This is the core streaming logic extracted to work directly within
+   * the main streaming generator.
    */
-  private async *processStreamResponse(
+  private async *processStreamResponseInternal(
     streamResponse: AsyncGenerator<GenerateContentResponse>,
     inputContent: ConversationContent,
     promptId: string,
@@ -201,7 +225,7 @@ export class GeminiChat implements IChat {
     let responseId = 0;
     let chunkCount = 0;
 
-    this.logger.debug(`Processing stream response for prompt: ${promptId}`, 'GeminiChat.processStreamResponse()');
+    this.logger.debug(`Processing stream response for prompt: ${promptId}`, 'GeminiChat.processStreamResponseInternal()');
 
     try {
       // Handle streaming response from the API
@@ -215,14 +239,14 @@ export class GeminiChat implements IChat {
             outputTokens: chunk.usageMetadata.candidatesTokenCount || 0,
           });
           
-          this.logger.debug(`Token usage updated - Input: ${chunk.usageMetadata.promptTokenCount}, Output: ${chunk.usageMetadata.candidatesTokenCount}`, 'GeminiChat.processStreamResponse()');
+          this.logger.debug(`Token usage updated - Input: ${chunk.usageMetadata.promptTokenCount}, Output: ${chunk.usageMetadata.candidatesTokenCount}`, 'GeminiChat.processStreamResponseInternal()');
         }
 
         const parts = chunk.candidates?.[0]?.content?.parts;
 
         // Skip chunks without parts (can happen during streaming)
         if (!parts || parts.length === 0) {
-          this.logger.debug(`Skipping chunk ${chunkCount} - no parts`, 'GeminiChat.processStreamResponse()');
+          this.logger.debug(`Skipping chunk ${chunkCount} - no parts`, 'GeminiChat.processStreamResponseInternal()');
           continue;
         }
 
@@ -237,38 +261,18 @@ export class GeminiChat implements IChat {
         yield llmResponse;
       }
       
-      this.logger.debug(`Stream processing completed - ${chunkCount} chunks processed, ${outputContent.length} valid responses`, 'GeminiChat.processStreamResponse()');
+      this.logger.debug(`Stream processing completed - ${chunkCount} chunks processed, ${outputContent.length} valid responses`, 'GeminiChat.processStreamResponseInternal()');
     } catch (error) {
       errorOccurred = true;
-      this.logger.error(`Error processing stream response: ${error instanceof Error ? error.message : String(error)}`, 'GeminiChat.processStreamResponse()');
+      this.logger.error(`Error processing stream response: ${error instanceof Error ? error.message : String(error)}`, 'GeminiChat.processStreamResponseInternal()');
       throw error;
     } finally {
       if (!errorOccurred) {
         // Update history after successful streaming
-        this.logger.debug(`Recording history - input + ${outputContent.length} responses`, 'GeminiChat.processStreamResponse()');
+        this.logger.debug(`Recording history - input + ${outputContent.length} responses`, 'GeminiChat.processStreamResponseInternal()');
         this.recordHistory(inputContent, outputContent);
       }
       this.isCurrentlyProcessing = false;
-    }
-  }
-
-  /**
-   * Wait for stream completion (for internal promise tracking)
-   * 
-   * This method ensures sequential processing of messages by tracking
-   * when the current stream completes.
-   * 
-   * @param streamGenerator - The stream generator to track
-   * @returns Promise that resolves when stream completes
-   */
-  private async waitForStreamCompletion(
-    _streamGenerator: AsyncGenerator<LLMResponse>
-  ): Promise<void> {
-    try {
-      // The stream will be consumed by the caller, we just need to track completion
-      // This is handled by the finally block in processStreamResponse
-    } catch (_error) {
-      // Error handling is done in processStreamResponse
     }
   }
 
@@ -278,7 +282,7 @@ export class GeminiChat implements IChat {
    * Checks if the response contains valid content that should be
    * included in conversation history.
    * 
-   * @param response - Our LLMResponse object
+   * @param response - LLM response to validate
    * @returns True if response is valid
    */
   private isValidLLMResponse(response: LLMResponse): boolean {
@@ -639,6 +643,8 @@ export class GeminiChat implements IChat {
    */
   private convertToLLMResponse(geminiResponse: GenerateContentResponse, responseId: string): LLMResponse {
     const candidate = geminiResponse.candidates?.[0];
+    
+    this.logger.debug(`Gemini response parts: ${JSON.stringify(candidate?.content?.parts, null, 2)}`, 'GeminiChat.convertToLLMResponse()');
     
     let content: ConversationContent;
     if (candidate?.content) {

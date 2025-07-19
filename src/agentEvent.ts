@@ -11,9 +11,6 @@ import {
   AgentEvent,
   AgentEventType,
   EventHandler,
-  ToolCallRequest,
-  ToolCallResponse,
-  ITokenUsage,
 } from './interfaces.js';
 
 /**
@@ -47,158 +44,6 @@ import {
  */
 export class AgentEventFactory {
   constructor(private readonly agentId: string) {}
-
-  /**
-   * Create a content event
-   * 
-   * Content events represent various types of content generation and processing,
-   * including user input, assistant responses, and system messages.
-   * 
-   * @param contentType - Type of content (user_input, assistant_chunk, etc.)
-   * @param content - The actual content
-   * @param metadata - Additional event metadata
-   * @returns AgentEvent for content
-   */
-  createContentEvent(
-    contentType: string,
-    content: string,
-    metadata?: Record<string, unknown>,
-  ): AgentEvent {
-    return this.createEvent(AgentEventType.Content, {
-      type: contentType,
-      content,
-      ...metadata,
-    });
-  }
-
-  /**
-   * Create a tool call request event
-   * 
-   * Emitted when a tool call is requested by the agent or user.
-   * 
-   * @param toolCall - Tool call request details
-   * @param metadata - Additional event metadata
-   * @returns AgentEvent for tool call request
-   */
-  createToolCallRequestEvent(
-    toolCall: ToolCallRequest,
-    metadata?: Record<string, unknown>,
-  ): AgentEvent {
-    return this.createEvent(AgentEventType.ToolCallRequest, {
-      toolCall,
-      ...metadata,
-    });
-  }
-
-  /**
-   * Create a tool call response event
-   * 
-   * Emitted when a tool call completes (successfully or with error).
-   * 
-   * @param toolResponse - Tool call response details
-   * @param metadata - Additional event metadata
-   * @returns AgentEvent for tool call response
-   */
-  createToolCallResponseEvent(
-    toolResponse: ToolCallResponse,
-    metadata?: Record<string, unknown>,
-  ): AgentEvent {
-    return this.createEvent(AgentEventType.ToolCallResponse, {
-      toolResponse,
-      ...metadata,
-    });
-  }
-
-  /**
-   * Create a token usage event
-   * 
-   * Emitted when token usage information is available, typically after
-   * each API request or at regular intervals during streaming.
-   * 
-   * @param usage - Token usage information
-   * @param metadata - Additional event metadata
-   * @returns AgentEvent for token usage
-   */
-  createTokenUsageEvent(
-    usage: ITokenUsage,
-    metadata?: Record<string, unknown>,
-  ): AgentEvent {
-    return this.createEvent(AgentEventType.TokenUsage, {
-      usage,
-      ...metadata,
-    });
-  }
-
-  /**
-   * Create an error event
-   * 
-   * Emitted when errors occur during agent processing.
-   * 
-   * @param error - Error object or message
-   * @param context - Additional error context
-   * @param metadata - Additional event metadata
-   * @returns AgentEvent for error
-   */
-  createErrorEvent(
-    error: Error | string,
-    context?: Record<string, unknown>,
-    metadata?: Record<string, unknown>,
-  ): AgentEvent {
-    const errorData = {
-      message: error instanceof Error ? error.message : error,
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : 'AgentError',
-      context,
-      ...metadata,
-    };
-
-    return this.createEvent(AgentEventType.Error, errorData);
-  }
-
-  /**
-   * Create a model fallback event
-   * 
-   * Emitted when the agent switches to a fallback model due to
-   * quota exhaustion, rate limits, or other issues.
-   * 
-   * @param originalModel - Original model that failed
-   * @param fallbackModel - Model being used as fallback
-   * @param reason - Reason for fallback
-   * @param metadata - Additional event metadata
-   * @returns AgentEvent for model fallback
-   */
-  createModelFallbackEvent(
-    originalModel: string,
-    fallbackModel: string,
-    reason: string,
-    metadata?: Record<string, unknown>,
-  ): AgentEvent {
-    return this.createEvent(AgentEventType.ModelFallback, {
-      originalModel,
-      fallbackModel,
-      reason,
-      ...metadata,
-    });
-  }
-
-  /**
-   * Create a user cancellation event
-   * 
-   * Emitted when the user cancels an ongoing operation.
-   * 
-   * @param reason - Reason for cancellation
-   * @param metadata - Additional event metadata
-   * @returns AgentEvent for user cancellation
-   */
-  createUserCancelledEvent(
-    reason?: string,
-    metadata?: Record<string, unknown>,
-  ): AgentEvent {
-    return this.createEvent(AgentEventType.UserCancelled, {
-      reason: reason || 'User cancelled operation',
-      ...metadata,
-    });
-  }
 
   /**
    * Create a generic event
@@ -393,8 +238,24 @@ export class AgentEventUtils {
    * @param event - Event to check
    * @returns True if event is content type
    */
-  static isContentEvent(event: AgentEvent): boolean {
-    return event.type === AgentEventType.Content;
+  static isUserMessageEvent(event: AgentEvent): boolean {
+    return event.type === AgentEventType.UserMessage || event.type === AgentEventType.AssistantMessage;
+  }
+
+  static isAssistantMessageEvent(event: AgentEvent): boolean {
+    return event.type === AgentEventType.AssistantMessage;
+  }
+
+  static isTurnCompleteEvent(event: AgentEvent): boolean {
+    return event.type === AgentEventType.TurnComplete;
+  }
+
+  static isHistoryClearedEvent(event: AgentEvent): boolean {
+    return event.type === AgentEventType.HistoryCleared;
+  }
+
+  static isSystemPromptSetEvent(event: AgentEvent): boolean {
+    return event.type === AgentEventType.SystemPromptSet;
   }
 
   /**
@@ -424,8 +285,8 @@ export class AgentEventUtils {
    * @param event - Content event
    * @returns Content string or null if not a content event
    */
-  static extractContent(event: AgentEvent): string | null {
-    if (!this.isContentEvent(event)) return null;
+  static extractAssistantMessage(event: AgentEvent): string | null {
+    if (!this.isAssistantMessageEvent(event)) return null;
     
     const data = event.data as any;
     return data?.content || null;
@@ -457,9 +318,25 @@ export class AgentEventUtils {
     
     let summary = '';
     switch (event.type) {
-      case AgentEventType.Content:
-        const contentData = event.data as any;
-        summary = `[${contentData?.type || 'content'}] ${contentData?.content?.substring(0, 100) || ''}`;
+      case AgentEventType.UserMessage:
+        const userMessageData = event.data as any;
+        summary = `[${userMessageData?.type || 'user_message'}] ${userMessageData?.content?.substring(0, 100) || ''}`;
+        break;
+      case AgentEventType.AssistantMessage:
+        const assistantMessageData = event.data as any;
+        summary = `[${assistantMessageData?.type || 'assistant_message'}] ${assistantMessageData?.content?.substring(0, 100) || ''}`;
+        break;
+      case AgentEventType.TurnComplete:
+        const turnCompleteData = event.data as any;
+        summary = `[${turnCompleteData?.type || 'turn_complete'}] ${turnCompleteData?.content?.substring(0, 100) || ''}`;
+        break;
+      case AgentEventType.HistoryCleared:
+        const historyClearedData = event.data as any;
+        summary = `[${historyClearedData?.type || 'history_cleared'}] ${historyClearedData?.content?.substring(0, 100) || ''}`;
+        break;
+      case AgentEventType.SystemPromptSet:
+        const systemPromptSetData = event.data as any;
+        summary = `[${systemPromptSetData?.type || 'system_prompt_set'}] ${systemPromptSetData?.content?.substring(0, 100) || ''}`;
         break;
       case AgentEventType.ToolCallRequest:
         const toolReqData = event.data as any;

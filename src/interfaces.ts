@@ -473,7 +473,11 @@ export interface ToolCallResponse {
  * - ModelFallback: Model fallback events
  */
 export enum AgentEventType {
-  Content = 'content',
+  HistoryCleared = 'history_cleared',
+  SystemPromptSet = 'system_prompt_set',
+  UserMessage = 'user_message',
+  AssistantMessage = 'assistant_message',
+  TurnComplete = 'turn_complete',
   ToolCallRequest = 'tool_call_request',
   ToolCallResponse = 'tool_call_response',
   ToolConfirmation = 'tool_confirmation',
