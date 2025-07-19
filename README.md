@@ -153,23 +153,138 @@ const agent = new StandardAgent(
   config
 );
 
-// Process user input with streaming
+// Process user input with streaming and event handling
 const userInput = 'Get weather for Beijing and Shanghai, then calculate the temperature difference';
+const sessionId = 'demo-session';
 const abortController = new AbortController();
 
-for await (const event of agent.process(userInput, 'session-123', abortController.signal)) {
+// Set a timeout for the operation
+setTimeout(() => {
+  console.log('⏰ Timeout reached, aborting...');
+  abortController.abort();
+}, 30000);
+
+console.log(`👤 User: ${userInput}`);
+console.log('🤖 Assistant: ');
+
+for await (const event of agent.process(userInput, sessionId, abortController.signal)) {
   switch (event.type) {
-    case AgentEventType.Content:
-      if (event.data.type === 'assistant_chunk') {
-        process.stdout.write(event.data.content);
-      }
+    case AgentEventType.AssistantMessage:
+      // Complete assistant response
+      console.log('🤖 Assistant Response:', event.data);
       break;
+      
+    case AgentEventType.UserMessage:
+      // User message processed
+      console.log('👤 User message:', event.data);
+      break;
+      
+    case AgentEventType.TurnComplete:
+      // Conversation turn completed
+      console.log('🔄 Turn complete:', event.data);
+      break;
+      
     case AgentEventType.ToolCallRequest:
-      console.log(`🔧 Tool: ${event.data.toolCall.name}`);
+      // Tool execution requested
+      console.log(`🔧 Tool requested: ${event.data.toolCall.name}`);
+      console.log(`   Args: ${JSON.stringify(event.data.toolCall.args)}`);
       break;
+      
+    case AgentEventType.ToolCallResponse:
+      // Tool execution completed
+      console.log(`🛠️ Tool response: ${event.data}`);
+      break;
+      
     case AgentEventType.TokenUsage:
-      console.log(`📊 Tokens: ${event.data.usage.totalTokens}`);
+      // Token usage update
+      console.log(`📊 Token usage: ${event.data.usage.totalTokens} tokens`);
       break;
+      
+    case AgentEventType.Error:
+      // Error occurred
+      console.error(`❌ Error: ${event.data.message}`);
+      break;
+  }
+}
+
+// Get final status after processing
+const status = agent.getStatus();
+console.log('\n📊 Final Status:');
+console.log(`   • Processing: ${status.isRunning ? 'Yes' : 'No'}`);
+console.log(`   • Tokens used: ${status.tokenUsage.totalTokens}`);
+console.log(`   • Usage: ${status.tokenUsage.usagePercentage.toFixed(2)}%`);
+
+// Get detailed token usage
+const tokenUsage = agent.getTokenUsage();
+console.log('\n📈 Token Usage Summary:');
+console.log(`   • Input tokens: ${tokenUsage.inputTokens}`);
+console.log(`   • Output tokens: ${tokenUsage.outputTokens}`);
+console.log(`   • Total tokens: ${tokenUsage.totalTokens}`);
+```
+
+## Event System
+
+The agent emits various events during processing that you can handle:
+
+### Event Types
+
+| Event Type | Description | When Emitted |
+|------------|-------------|--------------|
+| `AssistantMessage` | Complete assistant response | When the assistant finishes responding |
+| `UserMessage` | User message processed | When user input is processed |
+| `TurnComplete` | Conversation turn finished | When a complete turn (user + assistant) is done |
+| `ToolCallRequest` | Tool execution started | When a tool is requested for execution |
+| `ToolCallResponse` | Tool execution finished | When a tool completes execution |
+| `TokenUsage` | Token usage update | Periodically during processing |
+| `Error` | Error occurred | When an error happens during processing |
+
+### Event Handling Best Practices
+
+1. **Handle all event types** to ensure robust error handling
+2. **Use AbortController** for timeout and cancellation control
+3. **Monitor token usage** to avoid hitting limits
+4. **Check status after processing** for final statistics
+
+### Complete Event Flow Example
+
+```typescript
+// Set up proper error handling and timeouts
+const abortController = new AbortController();
+setTimeout(() => abortController.abort(), 30000); // 30 second timeout
+
+try {
+  for await (const event of agent.process(userInput, sessionId, abortController.signal)) {
+    switch (event.type) {
+      case AgentEventType.UserMessage:
+        // Log user input processing
+        console.log('Processing:', event.data);
+        break;
+        
+      case AgentEventType.ToolCallRequest:
+        // Show tool being executed
+        console.log(`Executing: ${event.data.toolCall.name}`);
+        break;
+        
+      case AgentEventType.AssistantMessage:
+        // Display final response
+        console.log('Response:', event.data);
+        break;
+        
+      case AgentEventType.TurnComplete:
+        // Turn finished, ready for next input
+        console.log('Turn completed');
+        break;
+        
+      case AgentEventType.Error:
+        console.error('Error:', event.data.message);
+        break;
+    }
+  }
+} catch (error) {
+  if (abortController.signal.aborted) {
+    console.log('Operation timed out');
+  } else {
+    console.error('Unexpected error:', error);
   }
 }
 ```
