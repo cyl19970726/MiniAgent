@@ -68,6 +68,8 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
   private isCurrentlyProcessing: boolean = false;
   private openai: OpenAI;
   private logger: ILogger;
+  private lastResponseId: string | null = null; // 🔑 NEW: Track previous response for cache optimization
+  private enableCacheOptimization: boolean = false; // 🔑 NEW: Feature flag for cache optimization
 
   constructor(
     private readonly chatConfig: IChatConfig,
@@ -131,12 +133,18 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
     });
 
     try {
-      // Convert our message format to OpenAI Response API format
+      // 🔑 NEW: Determine input strategy based on cache optimization
       let inputMessages: OpenaiMessageItem[] = [];
+      let previousResponseId: string | undefined;
       
-      // Convert history to provider format
-      for (const historyItem of this.history) {
-        inputMessages.push(this.convertToProviderMessage(historyItem));
+      if (this.enableCacheOptimization && this.lastResponseId && this.isMultiTurnRequest(message)) {
+        // Cache optimization: Only send incremental content
+        inputMessages = this.buildIncrementalInput(message);
+        previousResponseId = this.lastResponseId;
+        this.logger.info(`Using cache optimization with previous_response_id: ${previousResponseId}`, 'createStreamingResponse');
+      } else {
+        // Standard: Full history (existing logic)
+        inputMessages = this.buildFullHistoryInput();
       }
 
       this.logger.info(`Request contains ${inputMessages.length} messages:\n ${JSON.stringify(inputMessages, null, 2)}`, 'OpenAIChatResponse.createStreamingResponse()');
@@ -162,6 +170,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
       const streamResponse = await this.openai.responses.create({
         model: this.chatConfig.modelName,
         input: inputMessages,
+        previous_response_id: previousResponseId, // 🔑 NEW: Cache optimization
         stream: true,
         store: true,
         tools: tools,
@@ -366,6 +375,10 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
           continue;
 
         } else if (event.type === 'response.completed') {
+          // 🔑 NEW: Store response ID for cache optimization
+          this.lastResponseId = event.response.id;
+          this.logger.debug(`Stored response ID for cache optimization: ${this.lastResponseId}`, 'OpenAIChatResponse.processResponseStreamInternal()');
+          
           // Update token tracking
           if (event.response?.usage) {
             this.tokenTracker.updateUsage({
@@ -596,6 +609,74 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
    */
   getUsageSummary(): string {
     return this.tokenTracker.getUsageSummary();
+  }
+
+  // ============================================================================
+  // CACHE OPTIMIZATION METHODS - Phase 2 Implementation
+  // ============================================================================
+
+  /**
+   * Build incremental input for cache optimization
+   * Filters history to include only current user message and previous turn's function responses
+   */
+  private buildIncrementalInput(currentMessage: MessageItem): OpenaiMessageItem[] {
+    const incrementalHistory: MessageItem[] = [];
+    
+    // Get current turn number from message
+    const currentTurn = this.getCurrentTurnFromMessage(currentMessage);
+    
+    // Include current user message (e.g., "continue execution")
+    incrementalHistory.push(currentMessage);
+    
+    // Filter and include function responses from previous turn
+    const previousTurnFunctionResponses = this.history.filter(msg => 
+      msg.turnIdx === (currentTurn - 1) && 
+      msg.content.type === 'function_response'
+    );
+    
+    incrementalHistory.push(...previousTurnFunctionResponses);
+    
+    return incrementalHistory.map(msg => this.convertToProviderMessage(msg));
+  }
+
+  /**
+   * Build full history input (standard approach)
+   */
+  private buildFullHistoryInput(): OpenaiMessageItem[] {
+    return this.history.map(historyItem => this.convertToProviderMessage(historyItem));
+  }
+
+  /**
+   * Check if this is a multi-turn request (continuation turn)
+   */
+  private isMultiTurnRequest(message: MessageItem): boolean {
+    // Check if this is a continuation turn (e.g., "continue execution")
+    return message.content.type === 'text' && 
+           message.content.text === 'continue execution';
+  }
+
+  /**
+   * Get current turn number from message
+   */
+  private getCurrentTurnFromMessage(message: MessageItem): number {
+    return message.turnIdx || message.metadata?.turn || 1;
+  }
+
+  /**
+   * Enable cache optimization feature
+   * This is a feature flag to control cache optimization rollout
+   */
+  public enableCacheOptimizationFeature(): void {
+    this.enableCacheOptimization = true;
+    this.logger.info('Cache optimization enabled', 'OpenAIChatResponse.enableCacheOptimizationFeature()');
+  }
+
+  /**
+   * Disable cache optimization feature
+   */
+  public disableCacheOptimizationFeature(): void {
+    this.enableCacheOptimization = false;
+    this.logger.info('Cache optimization disabled', 'OpenAIChatResponse.disableCacheOptimizationFeature()');
   }
 
   // ============================================================================
