@@ -2,6 +2,9 @@
 
 A platform-agnostic agent framework for building autonomous AI agents with tool execution capabilities.
 
+## Install 
+npm install @continue-reasoning/mini-agent
+
 ## Features
 
 ### LLM Providers
@@ -15,6 +18,9 @@ A platform-agnostic agent framework for building autonomous AI agents with tool 
 - [x] eventStream
 - [x] streaming
 - [x] toolScheduler
+
+### External Feature
+- [ ] support mcp
 
 ## Key Design Principles
 

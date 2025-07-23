@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TokenTracker } from '../tokenTracker.js';
+import { TokenTracker } from '../chat/tokenTracker.js';
 import { ITokenUsage } from '../interfaces.js';
 
 describe('TokenTracker', () => {

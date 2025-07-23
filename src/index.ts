@@ -16,7 +16,6 @@ export type {
   IAgentConfig,
   IAgentStatus,
   IAgentFactory,
-  ITurnResult,
   EventHandler,
   PartialAgentConfig,
   AllConfig,
@@ -53,15 +52,12 @@ export type {
   IAllToolCallsCompleteHandler,
   IToolCallsUpdateHandler,
   
-  
-  // Turn interfaces
-  ITurn,
   ToolCallRequest,
   ToolCallResponse,
   
   // Data types
   ContentPart,
-  ConversationContent,
+  MessageItem as ConversationContent,
   LLMResponse,
   
   // Event types
@@ -98,8 +94,10 @@ export { isAgent, isChat, isTool } from './interfaces.js';
 // IMPLEMENTATIONS
 // ============================================================================
 
-// Chat implementation
-export { GeminiChat } from './geminiChat.js';
+// Chat implementations
+export { GeminiChat } from './chat/geminiChat.js';
+export { OpenAIChatResponse } from './chat/openaiChat.js';
+export { OpenAIChatResponse as OpenAIChat } from './chat/openaiChat.js'; // Alias for compatibility
 
 // Agent implementation
 export { BaseAgent } from './baseAgent.js';
@@ -109,7 +107,7 @@ export { StandardAgent } from './standardAgent.js';
 export { CoreToolScheduler } from './coreToolScheduler.js';
 
 // Token tracker implementation
-export { TokenTracker } from './tokenTracker.js';
+export { TokenTracker } from './chat/tokenTracker.js';
 
 // Event system
 export {
@@ -137,6 +135,16 @@ export {
 // ============================================================================
 // UTILITIES
 // ============================================================================
+
+// Utility functions
+export {
+  convertTypesToLowercase,
+  deepClone,
+  generateId,
+  safeJsonParse,
+  isValidJson,
+  truncateText,
+} from './utils.js';
 
 // Re-export essential types from @google/genai (our only external dependency)
 export type {

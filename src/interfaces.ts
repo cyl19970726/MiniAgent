@@ -6,144 +6,58 @@
  * designed to be implementation-independent and focus on core functionality.
  */
 
-// Import Schema from genai for tool parameter definitions
-import { Schema } from '@google/genai';
-import { ILogger, LogLevel } from './logger.js';
+// Note: Schema is now imported via chat/interfaces.ts from genai
+import { ILogger, LogLevel } from './logger';
 
-// ============================================================================
-// CORE DATA TYPES - Platform agnostic
-// ============================================================================
+// Import chat-related interfaces from the dedicated chat module
+import type {
+  ContentPart,
+  MessageItem,
+  FunctionCallStr,
+  LLMStart,
+  LLMChunk,
+  LLMChunkTextDelta,
+  LLMChunkTextDone,
+  LLMChunkThinking,
+  LLMFunctionCallDone,
+  LLMFunctionCallDelta,
+  ChunkItem,
+  LLMComplete,
+  LLMResponse,
+  ToolDeclaration,
+  IChatConfig,
+  IChat,
+  ITokenUsage,
+  ITokenTracker,
+} from './chat/interfaces.js';
 
-/**
- * Generic content part that can represent text, images, or other content types
- */
-export interface ContentPart {
-  /** Content type */
-  type: 'text' | 'image' | 'audio' | 'video' | 'file' | 'function_call' | 'function_response';
-  /** Text content (for text type) */
-  text?: string;
-  /** Base64 encoded data (for media types) */
-  data?: string;
-  /** MIME type (for media types) */
-  mimeType?: string;
-  /** Function call information (for function_call type) */
-  functionCall?: {
-    id: string;
-    name: string;
-    args: Record<string, unknown>;
-  };
-  /** Function response information (for function_response type) */
-  functionResponse?: {
-    id: string;
-    name: string;
-    result: unknown;
-  };
-  /** Additional metadata */
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Generic conversation content - our own conversation content type
- * 
- * This type replaces the core package's Content type, providing more flexible
- * content structure supporting multiple media types and function calls.
- * 
- * Key differences from core package's Content:
- * - Uses ContentPart[] instead of Part[]
- * - Supports more role types
- * - Includes optional metadata
- */
-export interface ConversationContent {
-  /** Role of the content creator */
-  role: 'user' | 'assistant' | 'system' | 'function';
-  /** Content parts */
-  parts: ContentPart[];
-  /** Optional metadata */
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Generic LLM response
- */
-export interface LLMResponse {
-  /** Response ID */
-  id: string;
-  /** Response content */
-  content: ConversationContent;
-  /** Usage metadata */
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
-  /** Model information */
-  model?: string;
-  /** Additional metadata */
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Token usage tracking information
- */
-export interface ITokenUsage {
-  /** Input tokens used in this request */
-  inputTokens: number;
-  /** Output tokens generated in this request */
-  outputTokens: number;
-  /** Total tokens used in this request */
-  totalTokens: number;
-  /** Cumulative tokens used in this session */
-  cumulativeTokens: number;
-  /** Token limit for the current model */
-  tokenLimit: number;
-  /** Percentage of token limit used */
-  usagePercentage: number;
-}
-
-/**
- * Real-time token consumption tracking
- */
-export interface ITokenTracker {
-  /**
-   * Update token usage with new consumption
-   * @param usage Token usage metadata
-   */
-  updateUsage(usage: { inputTokens: number; outputTokens: number }): void;
-  
-  /**
-   * Get current token usage statistics
-   * @returns Current token usage information
-   */
-  getUsage(): ITokenUsage;
-  
-  /**
-   * Reset token tracking (e.g., for new session)
-   */
-  reset(): void;
-  
-  /**
-   * Check if approaching token limit
-   * @param threshold Warning threshold (default: 0.8)
-   * @returns True if approaching limit
-   */
-  isApproachingLimit(threshold?: number): boolean;
-}
+// Re-export chat interfaces for backward compatibility
+export {
+  ContentPart,
+  MessageItem,
+  FunctionCallStr,
+  LLMStart,
+  LLMChunk,
+  LLMChunkTextDelta,
+  LLMChunkTextDone,
+  LLMChunkThinking,
+  LLMFunctionCallDone,
+  LLMFunctionCallDelta,
+  ChunkItem,
+  LLMComplete,
+  LLMResponse,
+  ToolDeclaration,
+  IChatConfig,
+  IChat,
+  ITokenUsage,
+  ITokenTracker,
+};
 
 // ============================================================================
 // TOOL INTERFACES - Platform agnostic
 // ============================================================================
 
-/**
- * Tool function declaration
- */
-export interface ToolDeclaration {
-  /** Tool name */
-  name: string;
-  /** Tool description */
-  description: string;
-  /** Parameter schema - using genai Schema for compatibility */
-  parameters?: Schema;
-}
+
 
 /**
  * File diff information for tool results
@@ -334,98 +248,7 @@ export interface ChatMessage {
   config?: Record<string, unknown>;
 }
 
-export interface IChatConfig {
-  apiKey: string;
-  modelName: string;
-  tokenLimit: number;
-  systemPrompt?: string;
-  toolDeclarations?: ToolDeclaration[];
-  initialHistory?: ConversationContent[];
-  parallelToolCalls?: boolean;
-}
 
-/**
- * Core Chat interface - platform agnostic
- */
-export interface IChat {
-  /**
-   * Send a message and get streaming response
-   * @param message Message to send
-   * @param promptId Unique identifier for this prompt
-   * @returns AsyncGenerator yielding response chunks
-   */
-  sendMessageStream(
-    message: ChatMessage,
-    promptId: string,
-  ): Promise<AsyncGenerator<LLMResponse>>;
-  
-  /**
-   * Get conversation history
-   * @param curated Whether to return curated (valid) history
-   * @returns Array of conversation content
-   */
-  getHistory(curated?: boolean): ConversationContent[];
-  
-  /**
-   * Clear conversation history
-   */
-  clearHistory(): void;
-  
-  /**
-   * Add content to conversation history
-   * @param content Content to add
-   */
-  addHistory(content: ConversationContent): void;
-  
-  /**
-   * Set entire conversation history
-   * @param history New conversation history
-   */
-  setHistory(history: ConversationContent[]): void;
-  
-  /**
-   * Set system prompt
-   * @param systemPrompt System prompt text
-   */
-  setSystemPrompt(systemPrompt: string): void;
-  
-  /**
-   * Get current system prompt
-   * @returns Current system prompt or undefined
-   */
-  getSystemPrompt(): string | undefined;
-  
-  /**
-   * Get current token usage tracking
-   * @returns Token usage information
-   */
-  getTokenUsage(): ITokenUsage;
-  
-  /**
-   * Get token tracker instance
-   * @returns Token tracker for real-time monitoring
-   */
-  getTokenTracker(): ITokenTracker;
-  
-  /**
-   * Check if chat is currently processing a message
-   * @returns True if processing
-   */
-  isProcessing(): boolean;
-  
-  /**
-   * Get current model information
-   * @returns Model name and configuration
-   */
-  getModelInfo(): { model: string; tokenLimit: number };
-  
-  /**
-   * Handle model fallback
-   * @param fallbackModel Model to fallback to
-   * @returns True if fallback was successful
-   */
-  handleModelFallback(fallbackModel: string): boolean;
-}
 
 // ============================================================================
 // TURN INTERFACES - Platform agnostic
@@ -462,29 +285,46 @@ export interface ToolCallResponse {
 }
 
 /**
- * Agent event types - agent event types
+ * Agent event types - based on IChat LLMResponse events + tool execution events
  * 
- * Defines various events emitted during agent processing:
- * - Content: Content generation events
- * - ToolCallRequest: Tool call request events
- * - ToolCallResponse: Tool call response events
- * - TokenUsage: Token usage tracking events
- * - Error: Error events
- * - ModelFallback: Model fallback events
+ * DESIGN PRINCIPLE: Maximize reuse of IChat's LLMResponse event stream.
+ * We only add agent-specific events for tool execution and user interactions.
+ * 
+ * Base events from LLMResponse:
+ * - response.start, response.chunk.*, response.complete, response.failed, response.incomplete
+ * 
+ * Agent-specific events:
+ * - user.message: User input events
+ * - tool.call.execution.*: Tool execution lifecycle
+ * - agent.*: Agent-level events (errors, cancellation)
  */
 export enum AgentEventType {
-  HistoryCleared = 'history_cleared',
-  SystemPromptSet = 'system_prompt_set',
-  UserMessage = 'user_message',
-  AssistantMessage = 'assistant_message',
-  TurnComplete = 'turn_complete',
-  ToolCallRequest = 'tool_call_request',
-  ToolCallResponse = 'tool_call_response',
-  ToolConfirmation = 'tool_confirmation',
-  UserCancelled = 'user_cancelled',
-  Error = 'error',
-  TokenUsage = 'token_usage',
-  ModelFallback = 'model_fallback',
+  // User interaction events
+  UserMessage = 'user.message',
+  UserCancelled = 'user.cancelled',
+  
+  // LLM Response events (directly from IChat)
+  // Note: These will be forwarded directly from LLMResponse
+  ResponseStart = 'response.start',
+  ResponseChunkTextDelta = 'response.chunk.text.delta',
+  ResponseChunkTextDone = 'response.chunk.text.done',
+  ResponseChunkThinkingDelta = 'response.chunk.thinking.delta', 
+  ResponseChunkThinkingDone = 'response.chunk.thinking.done',
+  ResponseChunkFunctionCallDelta = 'response.chunk.function_call.delta',
+  ResponseChunkFunctionCallDone = 'response.chunk.function_call.done',
+  ResponseComplete = 'response.complete',
+  ResponseIncomplete = 'response.incomplete',
+  ResponseFailed = 'response.failed',
+  
+  // Tool execution events (Agent-specific)
+  ToolExecutionStart = 'tool.call.execution.start',
+  ToolExecutionDone = 'tool.call.execution.done',
+  ToolConfirmation = 'tool.confirmation',
+  
+  // Agent-level events
+  TurnComplete = 'turn.complete',
+  Error = 'agent.error',
+  ModelFallback = 'agent.model_fallback',
 }
 
 /**
@@ -502,32 +342,106 @@ export interface AgentEvent {
 }
 
 /**
- * Turn interface - represents a single conversation turn
+ * LLM Response Agent Event - directly wraps LLMResponse
+ * 
+ * This event type allows us to forward LLMResponse events directly
+ * as AgentEvents without data transformation.
  */
-export interface ITurn {
-  /** Turn ID */
-  id: string;
-  /** Prompt ID */
-  promptId: string;
-  /** Pending tool calls */
-  pendingToolCalls: ToolCallRequest[];
+export interface LLMResponseAgentEvent extends AgentEvent {
+  /** Session ID for this conversation */
+  sessionId: string;
+  /** Turn number */
+  turn: number;
+}
+
+/**
+ * Tool execution events - Agent-specific
+ */
+export interface ToolExecutionStartEvent extends AgentEvent {
+  type: AgentEventType.ToolExecutionStart;
+  data: {
+    toolName: string;
+    callId: string;
+    args: Record<string, unknown>;
+    sessionId: string;
+    turn: number;
+  };
+}
+
+export interface ToolExecutionDoneEvent extends AgentEvent {
+  type: AgentEventType.ToolExecutionDone;
+  data: {
+    toolName: string;
+    callId: string;
+    result?: unknown;
+    error?: string;
+    duration?: number;
+    sessionId: string;
+    turn: number;
+  };
+}
+
+/**
+ * Utility function to create AgentEvent from LLMResponse
+ * 
+ * This is the core function that maps LLMResponse events to AgentEvents,
+ * maintaining the event stream consistency between IChat and IAgent layers.
+ */
+export function createAgentEventFromLLMResponse(
+  llmResponse: LLMResponse,
+  sessionId: string,
+  turn: number,
+): LLMResponseAgentEvent {
+  // Map LLMResponse type to AgentEventType
+  let agentEventType: AgentEventType;
   
-  /**
-   * Run the turn
-   * @param input Input content
-   * @param signal Abort signal
-   * @returns AsyncGenerator yielding agent events
-   */
-  run(
-    input: ConversationContent,
-    signal: AbortSignal,
-  ): AsyncGenerator<AgentEvent>;
-  
-  /**
-   * Get debug information
-   * @returns Debug data
-   */
-  getDebugInfo(): Record<string, unknown>;
+  switch (llmResponse.type) {
+    case 'response.start':
+      agentEventType = AgentEventType.ResponseStart;
+      break;
+    case 'response.chunk.text.delta':
+      agentEventType = AgentEventType.ResponseChunkTextDelta;
+      break;
+    case 'response.chunk.text.done':
+      agentEventType = AgentEventType.ResponseChunkTextDone;
+      break;
+    case 'response.chunk.thinking.delta':
+      agentEventType = AgentEventType.ResponseChunkThinkingDelta;
+      break;
+    case 'response.chunk.thinking.done':
+      agentEventType = AgentEventType.ResponseChunkThinkingDone;
+      break;
+    case 'response.chunk.function_call.delta':
+      agentEventType = AgentEventType.ResponseChunkFunctionCallDelta;
+      break;
+    case 'response.chunk.function_call.done':
+      agentEventType = AgentEventType.ResponseChunkFunctionCallDone;
+      break;
+    case 'response.complete':
+      agentEventType = AgentEventType.ResponseComplete;
+      break;
+    case 'response.incomplete':
+      agentEventType = AgentEventType.ResponseIncomplete;
+      break;
+    case 'response.failed':
+      agentEventType = AgentEventType.ResponseFailed;
+      break;
+    default:
+      // For any new LLM event types, we use a generic mapping
+      agentEventType = AgentEventType.ResponseComplete;
+  }
+
+  return {
+    type: agentEventType,
+    data: llmResponse,
+    timestamp: Date.now(),
+    sessionId,
+    turn,
+    metadata: {
+      source: 'llm_response',
+      originalType: llmResponse.type,
+    },
+  };
 }
 
 // ============================================================================
@@ -538,8 +452,10 @@ export interface ITurn {
  * Tool call request information - compatible with core package
  */
 export interface IToolCallRequestInfo {
-  /** Unique call identifier */
+  /** Unique call identifier (call_ prefix) */
   callId: string;
+  /** Function call identifier (fc_ prefix, used for OpenAI function responses) */
+  functionId?: string;
   /** Tool name */
   name: string;
   /** Tool arguments */
@@ -731,15 +647,30 @@ export interface IToolSchedulerConfig {
  * 
  * Implementation references the core package's CoreToolScheduler but uses our own type system
  */
+/**
+ * Tool execution lifecycle callbacks
+ */
+export type ToolExecutionStartCallback = (toolCall: IToolCallRequestInfo) => void;
+export type ToolExecutionDoneCallback = (
+  request: IToolCallRequestInfo,
+  response: IToolCallResponseInfo,
+  duration?: number,
+) => void;
+
 export interface IToolScheduler {
   /**
    * Schedule tool call(s) for execution
    * @param request Tool call request(s)
    * @param signal Abort signal
+   * @param callbacks Optional callbacks for tool execution lifecycle
    */
   schedule(
     request: IToolCallRequestInfo | IToolCallRequestInfo[],
     signal: AbortSignal,
+    callbacks?: {
+      onExecutionStart?: ToolExecutionStartCallback;
+      onExecutionDone?: ToolExecutionDoneCallback;
+    },
   ): Promise<void>;
 
   /**
@@ -820,23 +751,6 @@ export interface IAgentConfig {
   logLevel?: LogLevel;
 }
 
-
-/**
- * Turn result
- */
-export interface ITurnResult {
-  /** Whether tool calls were made */
-  hasToolCalls: boolean;
-  /** Events generated */
-  events: AgentEvent[];
-  /** Assistant response */
-  assistantResponse?: string;
-  /** Tool calls that were requested */
-  toolCalls: ToolCallRequest[];
-  /** Token usage for this turn */
-  tokenUsage?: ITokenUsage;
-}
-
 /**
  * Agent status
  */
@@ -878,12 +792,25 @@ export interface IAgent {
     sessionId: string,
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent>;
+
+  /**
+   * Process one turn of conversation
+   * @param sessionId - Unique identifier for this conversation session
+   * @param chatMessage - The chat message to process
+   * @param abortSignal - Signal to abort the processing if needed
+   * @returns AsyncGenerator that yields AgentEvent objects
+   */
+  processOneTurn(
+    sessionId: string,
+    chatMessage: MessageItem,
+    abortSignal: AbortSignal,
+  ): AsyncGenerator<AgentEvent>;
   
   /**
    * Get the underlying chat instance
    * @returns Chat instance
    */
-  getChat(): IChat;
+  getChat(): IChat<any>;
 
   /**
    * Get list of tools
@@ -1007,7 +934,7 @@ export function isAgent(obj: unknown): obj is IAgent {
 /**
  * Type guard for IChat
  */
-export function isChat(obj: unknown): obj is IChat {
+export function isChat(obj: unknown): obj is IChat<any> {
   return (
     typeof obj === 'object' &&
     obj !== null &&

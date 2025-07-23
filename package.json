@@ -12,6 +12,12 @@
     "dev": "tsc --watch",
     "example": "npx tsx examples/basicExample.ts",
     "example:basic": "npx tsx examples/basicExample.ts",
+    "example:gemini": "npx tsx examples/basicExample.ts --gemini",
+    "example:openai": "npx tsx examples/openaiExample.ts",
+    "example:openai-basic": "npx tsx examples/basicExample.ts --openai",
+    "example:openai-response": "npx tsx examples/basicExample.ts --openairep",
+    "example:all": "npx tsx examples/basicExample.ts --all",
+    "example:comparison": "npx tsx examples/providerComparison.ts",
     "example:weather": "npx tsx examples/weatherExample.ts",
     "demo": "npx tsx examples/demoExample.ts",
     "test": "vitest run",
@@ -23,7 +29,9 @@
     "prepare": "npm run build"
   },
   "dependencies": {
-    "@google/genai": "^1.8.0"
+    "@google/genai": "^1.8.0",
+    "dotenv": "^16.4.5",
+    "openai": "^5.10.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

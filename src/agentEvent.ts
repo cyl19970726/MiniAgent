@@ -239,34 +239,22 @@ export class AgentEventUtils {
    * @returns True if event is content type
    */
   static isUserMessageEvent(event: AgentEvent): boolean {
-    return event.type === AgentEventType.UserMessage || event.type === AgentEventType.AssistantMessage;
-  }
-
-  static isAssistantMessageEvent(event: AgentEvent): boolean {
-    return event.type === AgentEventType.AssistantMessage;
+    return event.type === AgentEventType.UserMessage;
   }
 
   static isTurnCompleteEvent(event: AgentEvent): boolean {
     return event.type === AgentEventType.TurnComplete;
   }
 
-  static isHistoryClearedEvent(event: AgentEvent): boolean {
-    return event.type === AgentEventType.HistoryCleared;
-  }
-
-  static isSystemPromptSetEvent(event: AgentEvent): boolean {
-    return event.type === AgentEventType.SystemPromptSet;
-  }
-
   /**
-   * Check if event is a tool call event
+   * Check if event is a tool execution event
    * 
    * @param event - Event to check
-   * @returns True if event is tool call type
+   * @returns True if event is tool execution type
    */
-  static isToolCallEvent(event: AgentEvent): boolean {
-    return event.type === AgentEventType.ToolCallRequest || 
-           event.type === AgentEventType.ToolCallResponse;
+  static isToolExecutionEvent(event: AgentEvent): boolean {
+    return event.type === AgentEventType.ToolExecutionStart || 
+           event.type === AgentEventType.ToolExecutionDone;
   }
 
   /**
@@ -280,16 +268,19 @@ export class AgentEventUtils {
   }
 
   /**
-   * Extract content from content event
+   * Extract content from LLM response event
    * 
-   * @param event - Content event
-   * @returns Content string or null if not a content event
+   * @param event - Agent event
+   * @returns Content string or null if not an LLM response event
    */
-  static extractAssistantMessage(event: AgentEvent): string | null {
-    if (!this.isAssistantMessageEvent(event)) return null;
+  static extractLLMContent(event: AgentEvent): string | null {
+    // Check for text content in LLM response events
+    if (event.type.startsWith('response.chunk.text.')) {
+      const llmData = event.data as any;
+      return llmData?.llmResponse?.content?.text || null;
+    }
     
-    const data = event.data as any;
-    return data?.content || null;
+    return null;
   }
 
   /**
@@ -322,37 +313,22 @@ export class AgentEventUtils {
         const userMessageData = event.data as any;
         summary = `[${userMessageData?.type || 'user_message'}] ${userMessageData?.content?.substring(0, 100) || ''}`;
         break;
-      case AgentEventType.AssistantMessage:
-        const assistantMessageData = event.data as any;
-        summary = `[${assistantMessageData?.type || 'assistant_message'}] ${assistantMessageData?.content?.substring(0, 100) || ''}`;
-        break;
       case AgentEventType.TurnComplete:
         const turnCompleteData = event.data as any;
-        summary = `[${turnCompleteData?.type || 'turn_complete'}] ${turnCompleteData?.content?.substring(0, 100) || ''}`;
+        summary = `[turn_complete] Turn ${turnCompleteData?.turn || 'N/A'} completed`;
         break;
-      case AgentEventType.HistoryCleared:
-        const historyClearedData = event.data as any;
-        summary = `[${historyClearedData?.type || 'history_cleared'}] ${historyClearedData?.content?.substring(0, 100) || ''}`;
+      case AgentEventType.ToolExecutionStart:
+        const toolStartData = event.data as any;
+        summary = `[tool_start] ${toolStartData?.toolName || 'unknown'}`;
         break;
-      case AgentEventType.SystemPromptSet:
-        const systemPromptSetData = event.data as any;
-        summary = `[${systemPromptSetData?.type || 'system_prompt_set'}] ${systemPromptSetData?.content?.substring(0, 100) || ''}`;
-        break;
-      case AgentEventType.ToolCallRequest:
-        const toolReqData = event.data as any;
-        summary = `[${toolReqData?.toolCall?.name || 'tool'}] Request`;
-        break;
-      case AgentEventType.ToolCallResponse:
-        const toolResData = event.data as any;
-        summary = `[${toolResData?.toolResponse?.callId || 'tool'}] Response`;
+      case AgentEventType.ToolExecutionDone:
+        const toolDoneData = event.data as any;
+        const status = toolDoneData?.error ? 'failed' : 'completed';
+        summary = `[tool_done] ${toolDoneData?.toolName || 'unknown'} ${status}`;
         break;
       case AgentEventType.Error:
         const errorData = event.data as any;
         summary = `[ERROR] ${errorData?.message || 'Unknown error'}`;
-        break;
-      case AgentEventType.TokenUsage:
-        const usageData = event.data as any;
-        summary = `[TOKENS] ${usageData?.usage?.totalTokens || 0} total`;
         break;
       default:
         summary = JSON.stringify(event.data).substring(0, 100);
