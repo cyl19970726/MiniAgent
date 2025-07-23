@@ -48,11 +48,23 @@
 
 ## 当前进行中的任务 🚧
 
-### 文档和规划
+### 🔥 **PRIORITY #1: OpenAI Cache Token 命中实现**
+- [ ] **实现 previous_response_id 机制** (最高优先级 ⚡)
+  - [ ] 在 OpenAIChatResponse 中添加 lastResponseId 字段追踪
+  - [ ] 修改 createStreamingResponse 支持 previous_response_id 参数  
+  - [ ] 实现智能输入构建：首轮=完整历史，后续轮=增量内容
+  - [ ] 在 response.completed 事件中保存和链接 response.id
+  - [ ] 移除人工 "continue execution" 消息，让OpenAI自然处理多轮对话
+  - [ ] 添加缓存命中率统计和监控
+  - [ ] 实现响应链验证和错误恢复机制
+  - [ ] 添加 feature flag 控制缓存机制启用/禁用
+
+### 文档和规划  
 - [ ] **项目文档整理**
   - [x] 创建 todos.md 任务清单
+  - [x] 更新多轮对话执行和Chat模块重构
   - [ ] 更新 README.md 文档
-  - [ ] 添加 API 文档
+  - [ ] 添加 Cache Token 实现文档
   - [ ] 创建使用指南
 
 ---
@@ -61,18 +73,18 @@
 
 ### 高优先级任务
 
-#### 1. Cache Token 支持 🚀
-- [ ] **在 LLMResponse 接口中添加 Cache Token 属性**
-  - [ ] 在 `interfaces.ts` 中更新 `LLMResponse` 接口
-  - [ ] 添加 `cacheTokens` 属性到 usage metadata
-  - [ ] 支持 `cacheHitTokens` 和 `cacheWriteTokens` 追踪
-  - [ ] 更新相关文档和类型定义
+#### 1. Cache Token 支持优化 🚀  
+- [x] **分析缓存token为0的根本原因**
+  - [x] 识别历史记录管理问题
+  - [x] 发现响应输出处理缺失
+  - [x] 确认ID字段处理不当
+  - [x] 制定基于previous_response_id的解决方案
 
-- [ ] **实现 Cache Token 追踪**
-  - [ ] 更新 `TokenTracker` 类支持缓存令牌
+- [ ] **完善 Cache Token 追踪和分析**
+  - [ ] 更新 `TokenTracker` 类支持缓存令牌详细统计
   - [ ] 在各个 Chat 实现中集成缓存令牌追踪
-  - [ ] 添加缓存效率统计和报告
-  - [ ] 实现缓存令牌的可视化和分析
+  - [ ] 添加缓存效率分析和报告
+  - [ ] 实现缓存令牌的可视化和性能监控
 
 #### 2. MCP (Model Context Protocol) 支持 🔥
 - [ ] **研究 MCP 规范**
@@ -257,4 +269,4 @@ npm run example
 
 ---
 
-*最后更新: 2025-01-21*
+*最后更新: 2025-01-23*
