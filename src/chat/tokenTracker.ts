@@ -6,7 +6,7 @@
  * warnings when approaching model limits.
  */
 
-import { ITokenTracker, ITokenUsage } from './interfaces.js';
+import { ITokenTracker, ITokenUsage } from './interfaces';
 
 /**
  * Real-time token usage tracker implementation
@@ -54,7 +54,9 @@ export class TokenTracker implements ITokenTracker {
   ) {
     this.currentUsage = {
       inputTokens: initialUsage?.inputTokens ?? 0,
+      inputTokenDetails: initialUsage?.inputTokenDetails ?? { cachedTokens: 0 },
       outputTokens: initialUsage?.outputTokens ?? 0,
+      outputTokenDetails: initialUsage?.outputTokenDetails ?? { reasoningTokens: 0 },
       totalTokens: initialUsage?.totalTokens ?? 0,
       cumulativeTokens: initialUsage?.cumulativeTokens ?? 0,
       tokenLimit: this.tokenLimit,
@@ -72,7 +74,20 @@ export class TokenTracker implements ITokenTracker {
    * 
    * @param usage - New token usage to add to totals
    */
-  updateUsage(usage: { inputTokens: number; outputTokens: number }): void {
+  updateUsage(
+    usage: {
+      inputTokens: number;
+      inputTokenDetails?: {
+        cachedTokens: number;
+      };
+      outputTokens: number;
+      outputTokenDetails?: {
+        reasoningTokens: number;
+      };
+      totalTokens?: number;
+    }
+
+  ): void {
     // Validate input tokens are non-negative
     if (usage.inputTokens < 0 || usage.outputTokens < 0) {
       console.warn('TokenTracker: Negative token usage detected, ignoring update');
@@ -81,7 +96,9 @@ export class TokenTracker implements ITokenTracker {
     
     // Update individual token counts
     this.currentUsage.inputTokens += usage.inputTokens;
+    this.currentUsage.inputTokenDetails!.cachedTokens += usage.inputTokenDetails?.cachedTokens ?? 0;
     this.currentUsage.outputTokens += usage.outputTokens;
+    this.currentUsage.outputTokenDetails!.reasoningTokens += usage.outputTokenDetails?.reasoningTokens ?? 0;
     
     // Calculate totals
     const currentTotal = usage.inputTokens + usage.outputTokens;

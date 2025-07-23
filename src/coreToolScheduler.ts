@@ -23,6 +23,8 @@ import {
   IErroredToolCall,
   ICancelledToolCall,
   IWaitingToolCall,
+  ToolExecutionStartCallback,
+  ToolExecutionDoneCallback,
 } from './interfaces.js';
 
 /**
@@ -68,6 +70,12 @@ export class CoreToolScheduler implements IToolScheduler {
   
   /** Abort controller for canceling all operations */
   private abortController?: AbortController;
+  
+  /** Tool execution lifecycle callbacks */
+  private currentCallbacks?: {
+    onExecutionStart?: ToolExecutionStartCallback;
+    onExecutionDone?: ToolExecutionDoneCallback;
+  } | undefined;
 
   constructor(private config: IToolSchedulerConfig & { toolRegistry?: Promise<Map<string, ITool>> }) {
     // Support both new interface (tools array) and old interface (toolRegistry promise)
@@ -92,10 +100,15 @@ export class CoreToolScheduler implements IToolScheduler {
    * 
    * @param request - Single tool call or array of tool calls
    * @param signal - Abort signal for cancellation
+   * @param callbacks - Optional callbacks for tool execution lifecycle
    */
   async schedule(
     request: IToolCallRequestInfo | IToolCallRequestInfo[],
     signal: AbortSignal,
+    callbacks?: {
+      onExecutionStart?: ToolExecutionStartCallback;
+      onExecutionDone?: ToolExecutionDoneCallback;
+    },
   ): Promise<void> {
     const requests = Array.isArray(request) ? request : [request];
     
@@ -105,6 +118,7 @@ export class CoreToolScheduler implements IToolScheduler {
 
     this.isCurrentlyRunning = true;
     this.abortController = new AbortController();
+    this.currentCallbacks = callbacks;
     
     // Link external abort signal to internal controller
     if (signal.aborted) {
@@ -393,6 +407,9 @@ export class CoreToolScheduler implements IToolScheduler {
    * Execute a single tool call
    */
   private async executeToolCall(scheduledCall: IScheduledToolCall): Promise<void> {
+    // Call onExecutionStart callback
+    this.currentCallbacks?.onExecutionStart?.(scheduledCall.request);
+    
     // Move to executing state
     const executingCall: IExecutingToolCall = {
       ...scheduledCall,
@@ -432,6 +449,13 @@ export class CoreToolScheduler implements IToolScheduler {
       
       this.toolCalls.set(scheduledCall.request.callId, successCall);
       this.notifyUpdate();
+      
+      // Call onExecutionDone callback for success
+      this.currentCallbacks?.onExecutionDone?.(
+        successCall.request, 
+        successCall.response, 
+        successCall.durationMs
+      );
       
     } catch (error) {
       await this.handleToolCallError(executingCall, error);
@@ -518,6 +542,13 @@ export class CoreToolScheduler implements IToolScheduler {
     };
     
     this.toolCalls.set(toolCall.request.callId, cancelledCall);
+    
+    // Call onExecutionDone callback for cancellation
+    this.currentCallbacks?.onExecutionDone?.(
+      cancelledCall.request, 
+      cancelledCall.response, 
+      cancelledCall.durationMs
+    );
   }
 
   /**
@@ -539,6 +570,13 @@ export class CoreToolScheduler implements IToolScheduler {
     
     this.toolCalls.set(toolCall.request.callId, erroredCall);
     this.notifyUpdate();
+    
+    // Call onExecutionDone callback for error
+    this.currentCallbacks?.onExecutionDone?.(
+      erroredCall.request, 
+      erroredCall.response, 
+      erroredCall.durationMs
+    );
   }
 
   /**
