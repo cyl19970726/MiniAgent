@@ -42,8 +42,8 @@ import { convertTypesToLowercase } from '../utils';
 type OpenaiMessageItem = OpenAI.Responses.ResponseInputItem;
 type OpenaiFunctionCallOutput = OpenAI.Responses.ResponseInputItem.FunctionCallOutput;
 type OpenaiFunctionCall = OpenAI.Responses.ResponseFunctionToolCall;
-type OpenaiOutputMessage = OpenAI.Responses.ResponseOutputMessage;
-type OpenaiUserInputMessage = OpenAI.Responses.ResponseInputItem.Message;
+// type OpenaiOutputMessage = OpenAI.Responses.ResponseOutputMessage;
+// type OpenaiUserInputMessage = OpenAI.Responses.ResponseInputItem.Message;
 
 /**
  * OpenAI Response API Chat implementation using our platform-agnostic interfaces
@@ -69,7 +69,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
   private openai: OpenAI;
   private logger: ILogger;
   private lastResponseId: string | null = null; // 🔑 NEW: Track previous response for cache optimization
-  private enableCacheOptimization: boolean = false; // 🔑 NEW: Feature flag for cache optimization
+  private enableCacheOptimization: boolean = true; // 🔑 NEW: Feature flag for cache optimization
 
   constructor(
     private readonly chatConfig: IChatConfig,
@@ -141,7 +141,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
         // Cache optimization: Only send incremental content
         inputMessages = this.buildIncrementalInput(message);
         previousResponseId = this.lastResponseId;
-        this.logger.info(`Using cache optimization with previous_response_id: ${previousResponseId}`, 'createStreamingResponse');
+        this.logger.info(`Incremental input messages: ${JSON.stringify(inputMessages, null, 2)}`, 'OpenAIChatResponse.createStreamingResponse()');
       } else {
         // Standard: Full history (existing logic)
         inputMessages = this.buildFullHistoryInput();
@@ -164,17 +164,33 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
 
       this.logger.debug(`Calling OpenAI Response API with model: ${this.chatConfig.modelName}`, 'OpenAIChatResponse.createStreamingResponse()');
       
-      // Use chat.completions.create for streaming
-      // Initialize the stream inside the generator - this is where the await happens
-      // But from the caller's perspective, streaming has already begun
-      const streamResponse = await this.openai.responses.create({
-        model: this.chatConfig.modelName,
-        input: inputMessages,
-        previous_response_id: previousResponseId, // 🔑 NEW: Cache optimization
-        stream: true,
-        store: true,
-        tools: tools,
-      });
+      let streamResponse;
+      if (this.enableCacheOptimization && previousResponseId && this.isMultiTurnRequest(message)) {
+        // Use chat.completions.create for streaming
+        // Initialize the stream inside the generator - this is where the await happens
+        // But from the caller's perspective, streaming has already beguns
+        this.logger.info(`Using cache optimization with previous_response_id: ${previousResponseId} and inputMessages: ${JSON.stringify(inputMessages, null, 2)}`, 
+        'OpenAIChatResponse.createStreamingResponse()');
+        streamResponse = await this.openai.responses.create({
+          model: this.chatConfig.modelName,
+          instructions: this.chatConfig.systemPrompt || null,
+          input: inputMessages,
+          previous_response_id: previousResponseId!, // 🔑 NEW: Cache optimization
+          stream: true,
+          store: true,
+          tools: tools,
+          });
+      } else {
+        streamResponse = await this.openai.responses.create({
+          model: this.chatConfig.modelName,
+          instructions: this.chatConfig.systemPrompt || null,
+          input: inputMessages,
+          stream: true,
+          store: true,
+          tools: tools,
+          });
+      }
+
 
       // Now stream the actual responses using event-based processing
       yield* this.processResponseStreamInternal(streamResponse, message, promptId);
@@ -272,7 +288,6 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
           continue;
 
         } else if (event.type == 'response.output_text.delta'){
-          this.logger.info(`response.output_text.delta: ${event.delta}`, 'OpenAIChatResponse.processResponseStreamInternal()');
           let chunk: LLMChunkTextDelta = {
             type: 'response.chunk.text.delta',
             chunk_idx: event.output_index,
@@ -518,6 +533,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
   clearHistory(): void {
     this.history = [];
     this.tokenTracker.reset();
+    this.lastResponseId = null;
   }
 
   /**
@@ -633,7 +649,21 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
       msg.turnIdx === (currentTurn - 1) && 
       msg.content.type === 'function_response'
     );
+
+    const previousAssistantMessages = this.history.filter(msg => 
+      msg.turnIdx === (currentTurn - 1) && 
+      msg.role === 'assistant' &&
+      msg.content.type === 'text'
+    );
+
+    const previousAssistantThinking = this.history.filter(msg => 
+      msg.turnIdx === (currentTurn - 1) && 
+      msg.role === 'assistant' &&
+      msg.content.type === 'thinking'
+    );
     
+    incrementalHistory.push(...previousAssistantMessages);
+    incrementalHistory.push(...previousAssistantThinking);
     incrementalHistory.push(...previousTurnFunctionResponses);
     
     return incrementalHistory.map(msg => this.convertToProviderMessage(msg));
