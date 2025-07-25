@@ -250,7 +250,8 @@ export abstract class BaseAgent implements IAgent {
         this.logger.debug(`Continuation turn - using existing history`, 'BaseAgent.processOneTurn()');
         responseStream = await this.chat.sendMessageStream({
           role: 'user',
-          content: { type: 'text', text: 'continue execution', metadata: { sessionId, timestamp: Date.now(), turn: this.currentTurn } }
+          content: { type: 'text', text: 'continue execution', metadata: { sessionId, timestamp: Date.now(), turn: this.currentTurn } },
+          turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
         }, promptId);
       } else {
         // Normal turn with user message
@@ -303,6 +304,7 @@ export abstract class BaseAgent implements IAgent {
                   (typeof response.resultDisplay === 'string' ? response.resultDisplay : JSON.stringify(response.responseParts)),
               },
             },
+            turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
           };
           
           this.chat.addHistory(toolResultMessage);
@@ -325,6 +327,7 @@ export abstract class BaseAgent implements IAgent {
           const textMessage: MessageItem = {
             role: 'assistant',
             content: llmResponse.content,
+            turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
           };
           
           this.chat.addHistory(textMessage);
@@ -335,6 +338,7 @@ export abstract class BaseAgent implements IAgent {
           const thinkingMessage: MessageItem = {
             role: 'assistant',
             content: llmResponse.content,
+            turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
           };
           
           this.chat.addHistory(thinkingMessage);
@@ -368,6 +372,7 @@ export abstract class BaseAgent implements IAgent {
                 args: llmResponse.content.functionCall.args,
               },
             },
+            turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
           };
           
           this.chat.addHistory(assistantMessage);
@@ -448,6 +453,7 @@ export abstract class BaseAgent implements IAgent {
           turn: this.currentTurn,
         },
       },
+      turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
     };
   }
 

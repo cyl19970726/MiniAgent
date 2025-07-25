@@ -67,6 +67,15 @@ export interface MessageItem {
   role: 'user' | 'assistant';
   /** Single content part - keeps messages atomic and focused */
   content: ContentPart;
+  /** Turn index for cache optimization - tracks which turn this message belongs to */
+  turnIdx?: number;
+  /** Additional metadata for extensibility */
+  metadata?: {
+    sessionId?: string;
+    timestamp?: number;
+    turn?: number;
+    responseId?: string; // Link to OpenAI response ID
+  };
 }
 
 // ============================================================================
@@ -306,6 +315,16 @@ export interface ITokenUsage {
   tokenLimit: number;
   /** Percentage of token limit used */
   usagePercentage: number;
+  
+  // 🔑 NEW: Cache performance metrics
+  /** Percentage of requests that hit cache */
+  cacheHitRate?: number;
+  /** Total tokens saved through caching */
+  tokenSavings?: number;
+  /** Requests that could use cache */
+  totalCacheableRequests?: number;
+  /** Requests that actually hit cache */
+  actualCacheHits?: number;
 }
 
 /**
