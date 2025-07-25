@@ -17,9 +17,11 @@ import {
   ITool,
   LogLevel,
   configureLogger,
+  Type,
+  Schema,
 } from '../src/index.js';
 
-import { Type } from '@google/genai';
+
 import { createWeatherTool,createSubTool } from './tools';
 
 import dotenv from 'dotenv';
@@ -133,7 +135,7 @@ async function testProvider(
     let modelName: string;
     switch (provider) {
       case 'openai':
-        modelName = 'gpt-4o';
+        modelName = 'o1';
         break;
       case 'gemini':
       default:

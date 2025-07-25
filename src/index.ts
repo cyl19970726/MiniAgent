@@ -149,4 +149,6 @@ export {
 // Re-export essential types from @google/genai (our only external dependency)
 export type {
   Schema,
+  Type,
 } from '@google/genai';
+

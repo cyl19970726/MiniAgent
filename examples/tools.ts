@@ -5,8 +5,7 @@
  * Includes WeatherTool for getting weather data and SubTool for basic math operations.
  */
 
-import { BaseTool, ToolResult } from '../src/index.js';
-import { Type } from '@google/genai';
+import { BaseTool, ToolResult, Type, Schema } from '../src/index.js';
 
 // ============================================================================
 // WEATHER TOOL
