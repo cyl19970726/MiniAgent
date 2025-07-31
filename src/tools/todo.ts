@@ -4,7 +4,7 @@ import { ToolResult } from "../interfaces";
 
 let GlobalTodoList: string[] = [];
 
-class  TodoTool extends BaseTool {
+export class TodoTool extends BaseTool {
     constructor() {
         super(
             "todo", 
