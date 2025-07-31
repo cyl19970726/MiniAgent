@@ -250,10 +250,10 @@ export interface IChatConfig {
  */
 export interface IChat<T> {
   /**
-   * CORE METHOD: Send message and get streaming response
+   * CORE METHOD: Send messages and get streaming response
    */
   sendMessageStream(
-    message: MessageItem,
+    messages: MessageItem[],
     promptId: string,
   ): Promise<AsyncGenerator<LLMResponse>>;
 

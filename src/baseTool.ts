@@ -19,7 +19,6 @@ import {
   ToolResult, 
   ToolCallConfirmationDetails, 
   ToolDeclaration,
-  FileDiff 
 } from './interfaces.js';
 
 /**
@@ -191,76 +190,14 @@ export abstract class BaseTool<
    * @param summary - Optional summary of the operation
    * @returns A properly formatted ToolResult
    */
-  protected createResult(
-    content: string,
-    display: string,
-    summary?: string,
+  protected createJsonStrResult(
+    result: any,
   ): ToolResult {
-    const result: ToolResult = {
-      llmContent: content,
-      returnDisplay: display,
+    const res : ToolResult = {
+      result: JSON.stringify(result),
     };
     
-    if (summary) {
-      result.summary = summary;
-    }
-    
-    return result;
-  }
-
-  /**
-   * Helper method to create an error result
-   * 
-   * This utility method creates a standardized error result when
-   * tool execution fails. It ensures consistent error formatting
-   * across all tools.
-   * 
-   * @param error - The error that occurred
-   * @param context - Additional context about the error
-   * @returns A ToolResult representing the error
-   */
-  protected createErrorResult(
-    error: Error | string,
-    context?: string,
-  ): ToolResult {
-    const errorMessage = error instanceof Error ? error.message : error;
-    const fullMessage = context ? `${context}: ${errorMessage}` : errorMessage;
-    
-    return {
-      llmContent: `Error: ${fullMessage}`,
-      returnDisplay: `❌ Error: ${fullMessage}`,
-      summary: `Failed: ${errorMessage}`,
-    };
-  }
-
-  /**
-   * Helper method to create a file diff result
-   * 
-   * This utility method creates a tool result specifically for file
-   * modifications, using the FileDiff format for display.
-   * 
-   * @param fileName - Name of the file that was modified
-   * @param fileDiff - The diff content showing changes
-   * @param content - Content for LLM consumption
-   * @param summary - Optional summary of the changes
-   * @returns A ToolResult with file diff display
-   */
-  protected createFileDiffResult(
-    fileName: string,
-    fileDiff: string,
-    content: string,
-    summary?: string,
-  ): ToolResult {
-    const diffDisplay: FileDiff = {
-      fileName,
-      fileDiff,
-    };
-
-    return {
-      llmContent: content,
-      returnDisplay: diffDisplay,
-      summary: summary || `Modified ${fileName}`,
-    };
+    return res;
   }
 
   /**
@@ -423,14 +360,14 @@ export class SimpleTool<TParams = unknown> extends BaseTool<TParams> {
     // Validate parameters before execution
     const validationError = this.validateToolParams(params);
     if (validationError) {
-      return this.createErrorResult(validationError);
+      return this.createJsonStrResult(validationError);
     }
 
     try {
       this.checkAbortSignal(signal, 'Tool execution');
       return await this.executor(params, signal, updateOutput);
     } catch (error) {
-      return this.createErrorResult(error instanceof Error ? error : new Error(String(error)));
+      return this.createJsonStrResult(error instanceof Error ? error : new Error(String(error)));
     }
   }
 }

@@ -17,6 +17,7 @@ import {
   AgentEventType,
   EventHandler,
   MessageItem,
+  ContentPart,
   IToolCallRequestInfo,
   IToolCallResponseInfo,
   ITool,
@@ -55,7 +56,12 @@ import { ILogger, LogLevel, createLogger } from './logger';
  * agent.onEvent('logger', (event) => console.log(event));
  * 
  * const abortController = new AbortController();
- * for await (const event of agent.process('Hello', 'session-1', abortController.signal)) {
+ * const messages = [{
+ *   role: 'user' as const,
+ *   content: { type: 'text' as const, text: 'Hello' },
+ *   metadata: { sessionId: 'session-1' }
+ * }];
+ * for await (const event of agent.process(messages, 'session-1', abortController.signal)) {
  *   console.log(event);
  * }
  * ```
@@ -136,7 +142,7 @@ export abstract class BaseAgent implements IAgent {
    * The method is designed to be thread-safe and respects abort signals for
    * graceful cancellation.
    * 
-   * @param userInput - The user's input text
+   * @param userMessages - Array of user messages with content and metadata
    * @param sessionId - Unique identifier for this conversation session
    * @param abortSignal - Signal to abort the processing if needed
    * @returns AsyncGenerator that yields AgentEvent objects
@@ -144,7 +150,12 @@ export abstract class BaseAgent implements IAgent {
    * @example
    * ```typescript
    * const abortController = new AbortController();
-   * for await (const event of agent.process('Hello', 'session-1', abortController.signal)) {
+   * const messages = [{
+   *   role: 'user' as const,
+   *   content: { type: 'text' as const, text: 'Hello' },
+   *   metadata: { sessionId: 'session-1' }
+   * }];
+   * for await (const event of agent.process(messages, 'session-1', abortController.signal)) {
    *   if (event.type === AgentEventType.AssistantMessage) {
    *     console.log(event.data);
    *   }
@@ -152,7 +163,7 @@ export abstract class BaseAgent implements IAgent {
    * ```
    */
   async *process(
-    userInput: string,
+    userMessages: {role: 'user', content: ContentPart, metadata?: {sessionId: string, previousResponseId?: string}}[],
     sessionId: string,
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent> {
@@ -163,31 +174,43 @@ export abstract class BaseAgent implements IAgent {
     }
 
     this.isRunning = true;
-    this.logger.info(`Starting to process user input: "${userInput.slice(0, 50)}${userInput.length > 50 ? '...' : ''}"`, 'BaseAgent.process()');
+    this.logger.info(`Starting to process ${userMessages.length} user message(s)`, 'BaseAgent.process()');
     
     try {
-      // 1. Create initial user content
-      const userContent = this.createUserContent(userInput, sessionId);
+      // 1. Create MessageItems from user messages
+      const messageItems: MessageItem[] = userMessages.map((userMessage) => ({
+        role: userMessage.role,
+        content: userMessage.content,
+        turnIdx: this.currentTurn,
+        metadata: {
+          ...userMessage.metadata,
+          timestamp: Date.now(),
+          turn: this.currentTurn,
+        },
+      }));
       
-      yield this.createEvent(AgentEventType.UserMessage, {
-        type: 'user_input',
-        content: userInput,
-        sessionId,
-        turn: this.currentTurn,
-      });
+      // Emit events for each user message
+      for (const userMessage of userMessages) {
+        yield this.createEvent(AgentEventType.UserMessage, {
+          type: 'user_input',
+          content: userMessage.content.text || '',
+          sessionId,
+          turn: this.currentTurn,
+          metadata: userMessage.metadata,
+        });
+      }
 
-      // 2. Use userContent directly as MessageItem
-      let currentChatMessage: MessageItem = userContent;
-
-      // 3. Process single turn (disable multi-turn due to OpenAI Response API limitations)
-      // TODO: Re-enable multi-turn after fixing OpenAI Response API format issues
+      // 2. Process single turn with all messages
       let hasToolCallsInTurn = true;
       
       for (let turnCount = 0; turnCount < 10 && hasToolCallsInTurn && !abortSignal.aborted; turnCount++) {
         this.logger.debug(`Processing turn ${this.currentTurn + 1}`, 'BaseAgent.process()');
         
         let turnHadToolCalls = false;
-        for await (const event of this.processOneTurn(sessionId, currentChatMessage, abortSignal)) {
+        // Pass the messages for the first turn, empty array for continuation turns
+        const messagesToProcess = turnCount === 0 ? messageItems : [];
+        
+        for await (const event of this.processOneTurn(sessionId, messagesToProcess, abortSignal)) {
           if (abortSignal.aborted) break;
           yield event;
           
@@ -198,12 +221,6 @@ export abstract class BaseAgent implements IAgent {
         }
         
         hasToolCallsInTurn = turnHadToolCalls;
-        
-        if (hasToolCallsInTurn) {
-          // If tools were executed, continue with null message to let LLM process tool results
-          // The LLM will automatically continue based on the tool results in chat history
-          currentChatMessage = null as any; // Signal to continue without new user input
-        }
       }
       
       this.logger.debug(`Processing completed for user input`, 'BaseAgent.process()');
@@ -219,6 +236,50 @@ export abstract class BaseAgent implements IAgent {
   }
 
   /**
+   * Process user messages (convenience method for string inputs)
+   * 
+   * This is a convenience method that converts string messages to the full
+   * message format and calls the main process method.
+   * 
+   * @param userMessages - Array of user message strings
+   * @param sessionId - Unique identifier for this conversation session
+   * @param abortSignal - Signal to abort the processing if needed
+   * @returns AsyncGenerator that yields AgentEvent objects
+   * 
+   * @example
+   * ```typescript
+   * const abortController = new AbortController();
+   * const messages = ['Hello', 'How are you?'];
+   * for await (const event of agent.processUserMessages(messages, 'session-1', abortController.signal)) {
+   *   if (event.type === AgentEventType.ResponseChunkTextDone) {
+   *     console.log(event.data);
+   *   }
+   * }
+   * ```
+   */
+  async *processUserMessages(
+    userMessages: string[],
+    sessionId: string,
+    abortSignal: AbortSignal,
+  ): AsyncGenerator<AgentEvent> {
+    // Convert string messages to full message format
+    const formattedMessages = userMessages.map(message => ({
+      role: 'user' as const,
+      content: {
+        type: 'text' as const,
+        text: message,
+      } as ContentPart,
+      metadata: {
+        sessionId,
+        timestamp: Date.now(),
+      },
+    }));
+
+    // Delegate to the main process method
+    yield* this.process(formattedMessages, sessionId, abortSignal);
+  }
+
+  /**
    * Process one turn of conversation
    * 
    * This method processes a single turn of conversation, handling:
@@ -227,13 +288,13 @@ export abstract class BaseAgent implements IAgent {
    * - Event emission
    * 
    * @param sessionId - Unique identifier for this conversation session
-   * @param chatMessage - The chat message to process
+   * @param chatMessages - Array of chat messages to process
    * @param abortSignal - Signal to abort the processing if needed
    * @returns AsyncGenerator that yields AgentEvent objects
    */
   async *processOneTurn(
     sessionId: string,
-    chatMessage: MessageItem,
+    chatMessages: MessageItem[],
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent> {
     this.currentTurn++;
@@ -245,17 +306,17 @@ export abstract class BaseAgent implements IAgent {
       
       // Handle continuation turns (no new user message)
       let responseStream;
-      if (chatMessage === null) {
+      if (chatMessages.length === 0) {
         // For continuation turns, just get response based on existing history
         this.logger.debug(`Continuation turn - using existing history`, 'BaseAgent.processOneTurn()');
-        responseStream = await this.chat.sendMessageStream({
+        responseStream = await this.chat.sendMessageStream([{
           role: 'user',
           content: { type: 'text', text: 'continue execution', metadata: { sessionId, timestamp: Date.now(), turn: this.currentTurn } },
           turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
-        }, promptId);
+        }], promptId);
       } else {
-        // Normal turn with user message
-        responseStream = await this.chat.sendMessageStream(chatMessage, promptId);
+        // Normal turn with user messages - send all messages
+        responseStream = await this.chat.sendMessageStream(chatMessages, promptId);
       }
 
       // Process streaming response with non-blocking tool execution  
@@ -280,7 +341,7 @@ export abstract class BaseAgent implements IAgent {
           const doneEvent = this.createEvent(AgentEventType.ToolExecutionDone, {
             toolName: request.name,
             callId: request.callId,
-            result: response.resultDisplay,
+            result: response.result,
             error: response.error?.message,
             duration,
             sessionId,
@@ -299,9 +360,7 @@ export abstract class BaseAgent implements IAgent {
                 ...(request.functionId && { id: request.functionId }),
                 call_id: request.callId, // Use call_ prefixed ID
                 name: request.name,
-                result: response.error ? 
-                  `Error: ${response.error.message}` : 
-                  (typeof response.resultDisplay === 'string' ? response.resultDisplay : JSON.stringify(response.responseParts)),
+                result: response.result!,
               },
             },
             turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
@@ -429,33 +488,6 @@ export abstract class BaseAgent implements IAgent {
 
 
 
-  /**
-   * Create user content from input
-   * 
-   * Converts user input string into a ConversationContent object
-   * with proper metadata and formatting.
-   * 
-   * @param userInput - The user's input text
-   * @param sessionId - Current session identifier
-   * @returns ConversationContent object representing the user input
-   * 
-   * @private
-   */
-  private createUserContent(userInput: string, sessionId: string): MessageItem {
-    return {
-      role: 'user',
-      content: {
-        type: 'text',
-        text: userInput,
-        metadata: {
-          sessionId,
-          timestamp: Date.now(),
-          turn: this.currentTurn,
-        },
-      },
-      turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
-    };
-  }
 
 
 

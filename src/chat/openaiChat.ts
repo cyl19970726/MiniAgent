@@ -34,7 +34,7 @@ import {
   LLMChunkThinking,
   ToolDeclaration,
 } from './interfaces';
-import { TokenTracker } from './tokenTracker';
+import { TokenTracker } from './tokenTracker.js';
 import { ITokenTracker, ITokenUsage } from './interfaces';
 import { ILogger, LogLevel, createLogger } from '../logger';
 import { convertTypesToLowercase } from '../utils';
@@ -98,11 +98,11 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
    * @returns AsyncGenerator yielding LLMResponse objects
    */
   async sendMessageStream(
-    message: MessageItem,
+    messages: MessageItem[],
     promptId: string,
   ): Promise<AsyncGenerator<LLMResponse>> {
     // Return immediately with an AsyncGenerator that handles initialization internally
-    return this.createStreamingResponse(message, promptId);
+    return this.createStreamingResponse(messages, promptId);
   }
 
   /**
@@ -113,15 +113,17 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
    * the initial await delay and provides true streaming from the first moment.
    */
   private async *createStreamingResponse(
-    message: MessageItem,
+    messages: MessageItem[],
     promptId: string,
   ): AsyncGenerator<LLMResponse> {
     await this.sendPromise;
     
     this.isCurrentlyProcessing = true;
     
-    // 🎯 Add user input to history FIRST for correct ordering
-    this.addHistory(message);
+    // 🎯 Add user inputs to history FIRST for correct ordering
+    for (const message of messages) {
+      this.addHistory(message);
+    }
     
     // Create a promise to track completion and set it immediately
     let completionResolve!: () => void;
@@ -137,14 +139,14 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
       let inputMessages: OpenaiMessageItem[] = [];
       let previousResponseId: string | undefined;
       
-      if (this.enableCacheOptimization && this.lastResponseId && this.isMultiTurnRequest(message)) {
+      if (this.enableCacheOptimization && this.lastResponseId && messages.length > 0 && this.isMultiTurnRequest(messages[messages.length - 1])) {
         // Cache optimization: Only send incremental content
-        inputMessages = this.buildIncrementalInput(message);
+        inputMessages = this.buildIncrementalInput(messages);
         previousResponseId = this.lastResponseId;
         this.logger.info(`Incremental input messages: ${JSON.stringify(inputMessages, null, 2)}`, 'OpenAIChatResponse.createStreamingResponse()');
       } else {
-        // Standard: Full history (existing logic)
-        inputMessages = this.buildFullHistoryInput();
+        // Standard: Full history (existing logic) + new messages
+        inputMessages = this.buildFullHistoryInput(messages);
       }
 
       this.logger.info(`Request contains ${inputMessages.length} messages:\n ${JSON.stringify(inputMessages, null, 2)}`, 'OpenAIChatResponse.createStreamingResponse()');
@@ -165,7 +167,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
       this.logger.debug(`Calling OpenAI Response API with model: ${this.chatConfig.modelName}`, 'OpenAIChatResponse.createStreamingResponse()');
       
       let streamResponse;
-      if (this.enableCacheOptimization && previousResponseId && this.isMultiTurnRequest(message)) {
+      if (this.enableCacheOptimization && previousResponseId && messages.length > 0 && this.isMultiTurnRequest(messages[messages.length - 1])) {
         // Use chat.completions.create for streaming
         // Initialize the stream inside the generator - this is where the await happens
         // But from the caller's perspective, streaming has already beguns
@@ -193,7 +195,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
 
 
       // Now stream the actual responses using event-based processing
-      yield* this.processResponseStreamInternal(streamResponse, message, promptId);
+      yield* this.processResponseStreamInternal(streamResponse, messages, promptId);
       
       // Stream completed successfully
       completionResolve();
@@ -214,7 +216,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
    */
   private async *processResponseStreamInternal(
     streamResponse: AsyncIterable<OpenAI.Responses.ResponseStreamEvent>,
-    _inputContent: MessageItem,
+    _inputMessages: MessageItem[],
     promptId: string,
   ): AsyncGenerator<LLMResponse> {
     const outputContent: MessageItem[] = [];
@@ -394,16 +396,25 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
           this.lastResponseId = event.response.id;
           this.logger.debug(`Stored response ID for cache optimization: ${this.lastResponseId}`, 'OpenAIChatResponse.processResponseStreamInternal()');
           
+
           // Update token tracking
           if (event.response?.usage) {
+            let cachedTokens = 0;
+            let reasoningTokens = 0;
+            if (event.response?.usage.input_tokens_details){
+               cachedTokens = event.response?.usage?.input_tokens_details?.cached_tokens || 0;
+            }
+            if (event.response?.usage.output_tokens_details){
+              reasoningTokens = event.response?.usage?.output_tokens_details?.reasoning_tokens || 0;
+            }
             this.tokenTracker.updateUsage({
               inputTokens: event.response.usage.input_tokens || 0,
               inputTokenDetails: {
-                cachedTokens: event.response.usage.input_tokens_details?.cached_tokens || 0,
+                cachedTokens: cachedTokens,
               },
               outputTokens: event.response.usage.output_tokens || 0,
               outputTokenDetails: {
-                reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens || 0,
+                reasoningTokens: reasoningTokens,
               },
               totalTokens: event.response.usage.total_tokens || 
                           ((event.response.usage.input_tokens || 0) + (event.response.usage.output_tokens || 0)),
@@ -419,11 +430,11 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
             usage: event.response?.usage ? {
               inputTokens: event.response.usage.input_tokens || 0,
               inputTokenDetails: {
-                cachedTokens: event.response.usage.input_tokens_details?.cached_tokens || 0,
+                cachedTokens: event.response?.usage?.input_tokens_details?.cached_tokens || 0,
               },
               outputTokens: event.response.usage.output_tokens || 0,
               outputTokenDetails: {
-                reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens || 0,
+                reasoningTokens: event.response?.usage?.output_tokens_details?.reasoning_tokens || 0,
               },
               totalTokens: event.response.usage.total_tokens || 
                           ((event.response.usage.input_tokens || 0) + (event.response.usage.output_tokens || 0)),
@@ -635,14 +646,15 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
    * Build incremental input for cache optimization
    * Filters history to include only current user message and previous turn's function responses
    */
-  private buildIncrementalInput(currentMessage: MessageItem): OpenaiMessageItem[] {
+  private buildIncrementalInput(messages: MessageItem[]): OpenaiMessageItem[] {
     const incrementalHistory: MessageItem[] = [];
     
-    // Get current turn number from message
-    const currentTurn = this.getCurrentTurnFromMessage(currentMessage);
+    // Get current turn number from last message
+    const lastMessage = messages[messages.length - 1];
+    const currentTurn = this.getCurrentTurnFromMessage(lastMessage);
     
-    // Include current user message (e.g., "continue execution")
-    incrementalHistory.push(currentMessage);
+    // Include all new user messages
+    incrementalHistory.push(...messages);
     
     // Filter and include function responses from previous turn
     const previousTurnFunctionResponses = this.history.filter(msg => 
@@ -672,8 +684,21 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
   /**
    * Build full history input (standard approach)
    */
-  private buildFullHistoryInput(): OpenaiMessageItem[] {
-    return this.history.map(historyItem => this.convertToProviderMessage(historyItem));
+  private buildFullHistoryInput(newMessages?: MessageItem[]): OpenaiMessageItem[] {
+    // If new messages provided, exclude them from history (they were just added)
+    const historyToConvert = newMessages ? 
+      this.history.slice(0, this.history.length - newMessages.length) : 
+      this.history;
+    
+    const convertedHistory = historyToConvert.map(historyItem => this.convertToProviderMessage(historyItem));
+    
+    // Add new messages if provided
+    if (newMessages) {
+      const convertedNewMessages = newMessages.map(msg => this.convertToProviderMessage(msg));
+      return [...convertedHistory, ...convertedNewMessages];
+    }
+    
+    return convertedHistory;
   }
 
   /**
