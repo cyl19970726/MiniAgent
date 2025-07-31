@@ -100,15 +100,15 @@ export class WeatherTool extends BaseTool<{ latitude: number; longitude: number 
         success: true
       };
 
-      return this.createResult(
-        `Weather at (${latitude}, ${longitude}): ${temperature}°C`,
-        `🌤️ Weather: ${temperature}°C at coordinates (${latitude}, ${longitude})`,
-        `Retrieved weather: ${temperature}°C`
+      return this.createJsonStrResult(
+        `Weather: ${temperature}°C at coordinates (${latitude}, ${longitude})`,
       );
     } catch (error) {
-      return this.createErrorResult(
-        error instanceof Error ? error : new Error(String(error)),
-        'Weather fetch'
+      return this.createJsonStrResult(
+        {
+          success: false,
+          message: error instanceof Error ? error : new Error(String(error)),
+        },
       );
     }
   }
@@ -221,15 +221,18 @@ export class SubTool extends BaseTool<{ minuend: number; subtrahend: number }> {
       const isNegative = result < 0;
       const info = isNegative ? 'negative result' : 'positive result';
 
-      return this.createResult(
-        `${operation} (${info})`,
-        `➖ ${operation}`,
-        `Subtraction result: ${result}`
+      return this.createJsonStrResult(
+        {
+          success: true,
+          message: `${operation} (${info})`,
+        },
       );
     } catch (error) {
-      return this.createErrorResult(
-        error instanceof Error ? error : new Error(String(error)),
-        'Subtraction calculation'
+      return this.createJsonStrResult(
+        {
+          success: false,
+          Error: error instanceof Error ? error : new Error(String(error)),
+        },
       );
     }
   }
@@ -315,14 +318,13 @@ export async function getWeatherForCity(cityName: string): Promise<{ city: strin
   try {
     const result = await weatherTool.execute(coordinates, abortController.signal);
     
-    // Check if the result contains an error
-    if (result.llmContent.includes('Error:') || result.returnDisplay.includes('❌')) {
-      return null;
-    }
-    
-    // Parse temperature from result
-    const content = result.llmContent;
-    const match = content.match(/(-?\d+(?:\.\d+)?)°C/);
+      // Check if the result contains an error
+      if (result.result.includes('Error:') || result.result.includes('❌')) {
+        return null;
+      }
+      
+      // Parse temperature from result
+    const match = result.result.match(/(-?\d+(?:\.\d+)?)°C/);
     const temperature = match ? parseFloat(match[1]) : 0;
     
     return {

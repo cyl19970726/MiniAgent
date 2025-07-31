@@ -30,7 +30,7 @@ import {
   IChatConfig,
   ToolDeclaration,
 } from './interfaces';
-import { TokenTracker } from './tokenTracker';
+import { TokenTracker } from './tokenTracker.js';
 import { ITokenTracker, ITokenUsage } from './interfaces';
 import { ILogger, LogLevel, createLogger } from '../logger';
 import { convertTypesToLowercase } from '../utils';
@@ -173,10 +173,10 @@ export class GeminiChat implements IChat<GeminiMessage> {
    * Implements our unified streaming pattern: Start → Delta → Done → Complete
    */
   async sendMessageStream(
-    message: MessageItem,
+    messages: MessageItem[],
     promptId: string,
   ): Promise<AsyncGenerator<LLMResponse>> {
-    return this.createStreamingResponse(message, promptId);
+    return this.createStreamingResponse(messages, promptId);
   }
 
   /**
@@ -185,7 +185,7 @@ export class GeminiChat implements IChat<GeminiMessage> {
    * This follows our standard pattern: LLMStart → LLMChunk*Delta → LLMChunk*Done → LLMComplete
    */
   private async *createStreamingResponse(
-    message: MessageItem,
+    messages: MessageItem[],
     promptId: string,
   ): AsyncGenerator<LLMResponse> {
     await this.sendPromise;
@@ -213,8 +213,15 @@ export class GeminiChat implements IChat<GeminiMessage> {
         tools: this.chatConfig.toolDeclarations,
       } as LLMStart;
 
-      // 3. Convert message to Gemini format and start streaming
-      const geminiMessage = this.convertMessageToGemini(message);
+      // 3. Convert messages to Gemini format and start streaming
+      // For multiple messages, we need to add them to history first
+      for (const message of messages) {
+        this.addHistory(message);
+      }
+      
+      // Send the last message for streaming (Gemini uses history for context)
+      const lastMessage = messages[messages.length - 1];
+      const geminiMessage = this.convertMessageToGemini(lastMessage);
       const stream = await chat.sendMessageStream({
         message: geminiMessage,
       });
@@ -332,8 +339,7 @@ export class GeminiChat implements IChat<GeminiMessage> {
         });
       }
 
-      // Add user message to history (done after successful completion)
-      this.addHistory(message);
+      // Messages already added to history above
       
       completionResolve();
       

@@ -441,8 +441,7 @@ export class CoreToolScheduler implements IToolScheduler {
         status: ToolCallStatus.Success,
         response: {
           callId: scheduledCall.request.callId,
-          responseParts: result.llmContent,
-          resultDisplay: result.returnDisplay,
+          result: result.result,
         },
         durationMs: Date.now() - (scheduledCall.startTime || Date.now()),
       };
@@ -535,7 +534,7 @@ export class CoreToolScheduler implements IToolScheduler {
       tool: 'tool' in toolCall ? toolCall.tool : {} as ITool,
       response: {
         callId: toolCall.request.callId,
-        responseParts: `Tool call cancelled: ${reason}`,
+        result: `Tool call cancelled: ${reason}`,
         error: new Error(reason),
       },
       durationMs: Date.now() - (toolCall.startTime || Date.now()),
@@ -562,7 +561,7 @@ export class CoreToolScheduler implements IToolScheduler {
       status: ToolCallStatus.Error,
       response: {
         callId: toolCall.request.callId,
-        responseParts: `Tool execution failed: ${errorMessage}`,
+        result: `Tool execution failed: ${errorMessage}`,
         error: error instanceof Error ? error : new Error(errorMessage),
       },
       durationMs: Date.now() - (toolCall.startTime || Date.now()),

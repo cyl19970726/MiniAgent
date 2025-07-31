@@ -25,13 +25,11 @@ export type {
   IChatConfig,
   ITokenUsage,
   ITokenTracker,
-  ChatMessage,
   
   // Tool interfaces
   ITool,
   ToolDeclaration,
   ToolResult,
-  ToolResultDisplay,
   FileDiff,
   ToolConfirmationPayload,
   ToolCallConfirmationDetails,
@@ -147,8 +145,6 @@ export {
 } from './utils.js';
 
 // Re-export essential types from @google/genai (our only external dependency)
-export type {
-  Schema,
-  Type,
-} from '@google/genai';
+export { Type } from '@google/genai';
+export type { Schema } from '@google/genai';
 

@@ -70,32 +70,10 @@ export interface FileDiff {
 }
 
 /**
- * Tool result display type - can be string or file diff
- */
-export type ToolResultDisplay = string | FileDiff;
-
-/**
  * Tool execution result - compatible with core package ToolResult
  */
 export interface ToolResult {
-  /**
-   * A short, one-line summary of the tool's action and result.
-   * e.g., "Read 5 files", "Wrote 256 bytes to foo.txt"
-   */
-  summary?: string;
-  
-  /**
-   * Content meant to be included in LLM history.
-   * This should represent the factual outcome of the tool execution.
-   * Platform-agnostic version - can be string or ContentPart array
-   */
-  llmContent: string | ContentPart[];
-
-  /**
-   * Display content for user interface.
-   * This provides a user-friendly summary or visualization of the result.
-   */
-  returnDisplay: ToolResultDisplay;
+  result: string; // success message or error message
 }
 
 /**
@@ -238,15 +216,8 @@ export interface ITool<
 // CHAT INTERFACES - Platform agnostic
 // ============================================================================
 
-/**
- * Chat message parameters
- */
-export interface ChatMessage {
-  /** Message content */
-  content: string | ContentPart[];
-  /** Additional configuration */
-  config?: Record<string, unknown>;
-}
+// Note: ChatMessage interface has been deprecated in favor of MessageItem
+// MessageItem is imported from chat/interfaces.ts and should be used instead
 
 
 
@@ -472,10 +443,8 @@ export interface IToolCallRequestInfo {
 export interface IToolCallResponseInfo {
   /** Call identifier */
   callId: string;
-  /** Response parts in Gemini format */
-  responseParts: unknown;
   /** Display content for UI */
-  resultDisplay?: string | FileDiff;
+  result?: string;
   /** Error if execution failed */
   error?: Error;
 }
@@ -782,13 +751,26 @@ export type EventHandler = (event: AgentEvent) => void;
 export interface IAgent {
   /**
    * Process user input with streaming responses
-   * @param userInput User input text
+   * @param userMessages Array of user messages with content and metadata
    * @param sessionId Session identifier
    * @param abortSignal Abort signal
    * @returns AsyncGenerator yielding agent events
    */
   process(
-    userInput: string,
+    userMessages: {role: 'user', content: ContentPart, metadata?: {sessionId: string, previousResponseId?: string}}[],
+    sessionId: string,
+    abortSignal: AbortSignal,
+  ): AsyncGenerator<AgentEvent>;
+
+  /**
+   * Process user messages (convenience method for string inputs)
+   * @param userMessages Array of user message strings
+   * @param sessionId Session identifier
+   * @param abortSignal Abort signal
+   * @returns AsyncGenerator yielding agent events
+   */
+  processUserMessages(
+    userMessages: string[],
     sessionId: string,
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent>;
@@ -796,13 +778,13 @@ export interface IAgent {
   /**
    * Process one turn of conversation
    * @param sessionId - Unique identifier for this conversation session
-   * @param chatMessage - The chat message to process
+   * @param chatMessages - Array of chat messages to process
    * @param abortSignal - Signal to abort the processing if needed
    * @returns AsyncGenerator that yields AgentEvent objects
    */
   processOneTurn(
     sessionId: string,
-    chatMessage: MessageItem,
+    chatMessages: MessageItem[],
     abortSignal: AbortSignal,
   ): AsyncGenerator<AgentEvent>;
   
@@ -900,6 +882,92 @@ export interface IAgentFactory {
     workingDirectory: string,
     systemPrompt?: string,
   ): Promise<IAgent>;
+}
+
+// ============================================================================
+// SESSION MANAGEMENT INTERFACES
+// ============================================================================
+
+/**
+ * Agent session data structure
+ */
+export interface AgentSession {
+  /** Unique session identifier */
+  id: string;
+  /** Optional session title */
+  title?: string;
+  /** Session creation timestamp */
+  createdAt: string;
+  /** Last activity timestamp */
+  lastActiveAt: string;
+  /** Message history for this session */
+  messageHistory: MessageItem[];
+  /** Token usage tracking for this session */
+  tokenUsage: {
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalTokens: number;
+  };
+  /** Optional metadata for session customization */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Session manager interface for handling multiple conversation sessions
+ */
+export interface ISessionManager {
+  // Core session management
+  createSession(title?: string): string;
+  getSession(sessionId: string): AgentSession | null;
+  getAllSessions(): AgentSession[];
+  deleteSession(sessionId: string): boolean;
+  setCurrentSession(sessionId: string): boolean;
+  getCurrentSession(): AgentSession | null;
+  getCurrentSessionId(): string | null;
+  
+  // Session state management
+  updateSessionTitle(sessionId: string, title: string): boolean;
+  getSessionCount(): number;
+  clearAllSessions(): void;
+  
+  // Session persistence (for implementations that support it)
+  saveSession(sessionId: string): Promise<boolean>;
+  loadSession(sessionId: string): Promise<AgentSession | null>;
+}
+
+/**
+ * Enhanced StandardAgent interface that extends IAgent with session management
+ */
+export interface IStandardAgent extends IAgent {
+  /**
+   * Process user input with session management
+   * @param userInput User input as string or MessageItem array
+   * @param sessionId Optional session identifier
+   * @param abortSignal Optional abort signal
+   * @returns AsyncGenerator yielding agent events
+   */
+  processWithSession(
+    userInput: string | MessageItem[],
+    sessionId?: string,
+    abortSignal?: AbortSignal
+  ): AsyncGenerator<AgentEvent>;
+
+  // Session management methods
+  createNewSession(title?: string): string;
+  switchToSession(sessionId: string): boolean;
+  getSessionManager(): ISessionManager;
+  getCurrentSessionId(): string | null;
+  
+  // Convenience session methods
+  getSessions(): AgentSession[];
+  deleteSession(sessionId: string): boolean;
+  updateSessionTitle(sessionId: string, title: string): boolean;
+  
+  // Enhanced tool management with session context
+  getToolsForSession(sessionId?: string): ITool[];
+  
+  // Session-aware status
+  getSessionStatus(sessionId?: string): IAgentStatus & { sessionInfo?: AgentSession | undefined };
 }
 
 // ============================================================================

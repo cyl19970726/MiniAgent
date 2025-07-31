@@ -138,7 +138,9 @@ export class TokenTracker implements ITokenTracker {
   reset(): void {
     this.currentUsage = {
       inputTokens: 0,
+      inputTokenDetails: { cachedTokens: 0 },
       outputTokens: 0,
+      outputTokenDetails: { reasoningTokens: 0 },
       totalTokens: 0,
       cumulativeTokens: 0,
       tokenLimit: this.tokenLimit,

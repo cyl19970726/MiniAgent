@@ -206,11 +206,11 @@ For this specific task: After getting weather data for both cities, calculate th
     }, 45000);
     
     // Process user input
-    const userInput = `Get the current weather temperature 
+    const userMessages = [`Get the current weather temperature 
     for Beijing (latitude: 39.9042, longitude: 116.4074) , and then calculate the temperature difference between Beijing and Shanghai (latitude: 31.2304, longitude: 121.4737).
-    `;
+    `];
     
-    const events = agent.process(userInput, sessionId, abortController.signal);
+    const events = agent.processUserMessages(userMessages, sessionId, abortController.signal);
     
     for await (const event of events) {
       switch (event.type) {
