@@ -148,3 +148,28 @@ export {
 export { Type } from '@google/genai';
 export type { Schema } from '@google/genai';
 
+// ============================================================================
+// MCP INTEGRATION
+// ============================================================================
+
+// MCP exports - optional integration for Model Context Protocol
+export type {
+  MCPConfig,
+  MCPServerConfig,
+  MCPToolDefinition,
+  MCPTool,
+  MCPAgentConfig,
+  IMCPServerManager,
+} from './mcp/index.js';
+
+export {
+  MCPAgent,
+  createMCPAgent,
+  MCPServerManager,
+  MCPConfigLoader,
+  MCPConfigHelpers,
+  MCPServerStatus,
+  MCPErrorType,
+  MCPError,
+} from './mcp/index.js';
+
