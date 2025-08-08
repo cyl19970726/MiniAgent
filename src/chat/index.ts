@@ -32,6 +32,8 @@ export {
   isChat,
 } from './interfaces.js';
 
+export * from './interfaces.js';
+
 // Provider implementations
 export { OpenAIChatResponse } from './openaiChat.js';
 export { GeminiChat } from './geminiChat.js';

@@ -20,6 +20,11 @@ export type {
   PartialAgentConfig,
   AllConfig,
   
+  // Session management interfaces
+  ISessionManager,
+  IStandardAgent,
+  AgentSession,
+  
   // Chat interfaces
   IChat,
   IChatConfig,
@@ -55,7 +60,7 @@ export type {
   
   // Data types
   ContentPart,
-  MessageItem as ConversationContent,
+  MessageItem,
   LLMResponse,
   
   // Event types
