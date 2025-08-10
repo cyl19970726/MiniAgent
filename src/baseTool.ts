@@ -17,7 +17,6 @@ import { Schema } from '@google/genai';
 import { 
   ITool, 
   DefaultToolResult,
-  ToolResult, 
   ToolCallConfirmationDetails, 
   ToolDeclaration,
 } from './interfaces.js';
@@ -262,22 +261,6 @@ export abstract class BaseTool<
     }
     
     return result;
-  }
-
-  /**
-   * Helper method to create a basic tool result for JSON serialization
-   * 
-   * @param result - The result data to wrap
-   * @returns A properly formatted ToolResult
-   */
-  protected createJsonStrResult(
-    result: unknown,
-  ): ToolResult {
-    const res : ToolResult = {
-      result: JSON.stringify(result),
-    };
-    
-    return res;
   }
 
   /**

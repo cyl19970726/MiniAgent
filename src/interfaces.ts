@@ -94,14 +94,6 @@ export class DefaultToolResult<T = unknown> implements IToolResult {
 }
 
 /**
- * Legacy tool result interface - maintained for backward compatibility
- * @deprecated Use IToolResult and DefaultToolResult instead
- */
-export interface ToolResult {
-  result: string; // success message or error message
-}
-
-/**
  * Tool confirmation payload for modifications
  */
 export interface ToolConfirmationPayload {
@@ -810,6 +802,32 @@ export interface IAgentConfig {
   logger?: ILogger;
   /** Log level for this agent */
   logLevel?: LogLevel;
+  /** MCP (Model Context Protocol) configuration */
+  mcp?: {
+    /** Whether MCP integration is enabled */
+    enabled: boolean;
+    /** List of MCP servers to connect to */
+    servers: Array<{
+      name: string;
+      transport: {
+        type: 'stdio' | 'http';
+        command?: string;
+        args?: string[];
+        url?: string;
+        auth?: {
+          type: 'bearer' | 'basic';
+          token?: string;
+          username?: string;
+          password?: string;
+        };
+      };
+      autoConnect?: boolean;
+    }>;
+    /** Whether to auto-discover and register tools on startup */
+    autoDiscoverTools?: boolean;
+    /** Global connection timeout in milliseconds */
+    connectionTimeout?: number;
+  };
 }
 
 /**

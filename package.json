@@ -19,6 +19,9 @@
     "example:all": "npx tsx examples/basicExample.ts --all",
     "example:comparison": "npx tsx examples/providerComparison.ts",
     "example:weather": "npx tsx examples/weatherExample.ts",
+    "example:mcp-basic": "npx tsx examples/mcp-basic-example.ts",
+    "example:mcp-advanced": "npx tsx examples/mcp-advanced-example.ts",
+    "example:mcp-adapter": "npx tsx examples/mcpToolAdapterExample.ts",
     "demo": "npx tsx examples/demoExample.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -31,7 +34,8 @@
   "dependencies": {
     "@google/genai": "^1.8.0",
     "dotenv": "^16.4.5",
-    "openai": "^5.10.1"
+    "openai": "^5.10.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

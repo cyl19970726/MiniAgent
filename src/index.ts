@@ -34,7 +34,6 @@ export type {
   // Tool interfaces
   ITool,
   ToolDeclaration,
-  ToolResult,
   FileDiff,
   ToolConfirmationPayload,
   ToolCallConfirmationDetails,
