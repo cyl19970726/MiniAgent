@@ -4,90 +4,177 @@
 
 ## 📚 文档结构
 
-### 📖 基础文档
-- **[快速开始](./quickstart.md)** - 5分钟快速上手，了解基本使用方法
+### 🚀 快速开始
+- **[快速开始指南](./quickstart.md)** - 5分钟快速上手，了解基本使用方法
 
-### 🔧 核心概念
-- **[Agent运行原理](./agent-loop-principle.md)** - 深入理解 Agent Loop 的工作机制
-  - Agent Loop 主要过程
-  - 接收用户请求 → 访问LLM → 生成toolCall → ToolScheduler执行toolCall → 结果重新添加到历史记录 → 继续访问LLM → 没有toolCall则跳出loop
-  - 架构图和流程图
-  - 核心组件详解
+### 🏗️ 架构设计
+- **[架构概览](./architecture/)** - 框架核心设计和工作原理
+  - [Agent 运行循环](./architecture/agent-loop.md) - 深入理解 Agent Loop 的工作机制
+  - [事件系统](./architecture/event-system.md) - 事件驱动架构的完整说明
 
-### 🛠️ 使用指南
-- **[BaseAgent使用指南](./baseagent-usage.md)** - 完整的 BaseAgent 使用手册
-  - 所有 Agent Event 类型说明
-  - 推荐的事件处理方法
-  - 高级用法和性能监控
-  - 错误处理策略
+### 💬 Chat Provider 系统
+- **[Chat 系统](./chat/)** - 多 LLM 支持和响应处理
+  - Chat Provider 概览 - 统一的多 LLM 接口 *(开发中)*
+  - Token 管理 - 使用量追踪和优化 *(开发中)*
 
-- **[Tool定义和使用](./tool-definition.md)** - 工具系统完整指南
-  - 如何定义自定义工具
-  - 事件接收和处理
-  - 通过 callback 启用 tool 的 approve 功能
-  - 工具确认机制
+### 🛠️ 工具系统  
+- **[工具系统](./tool-system/)** - 自定义工具开发和管理
+  - [自定义工具](./tool-system/custom-tools.md) - 完整的工具定义和实现指南
+  - 工具调度器 - 并行执行和调度机制 *(开发中)*
 
-- **[SessionManager使用指南](./session-manager-usage.md)** - 会话管理功能指南
-  - 如何通过 StandardAgent 使用 processWithSession 功能
-  - 多会话管理
-  - 会话持久化
-  - 高级会话管理特性
+### 📖 使用指南
+- **[BaseAgent 使用指南](./baseagent-usage.md)** - 核心 Agent 功能使用手册
+- **[SessionManager 使用指南](./session-manager-usage.md)** - 多会话管理和状态持久化
 
-## 🚀 快速导航
+## 🎯 快速导航
 
-### 新手入门
-1. 首先阅读 [快速开始](./quickstart.md) 了解基本概念
-2. 然后查看 [Agent运行原理](./agent-loop-principle.md) 理解内部机制
-3. 根据需要选择相应的使用指南
+### 新手入门路径
+1. 📖 [快速开始](./quickstart.md) - 了解基本概念和使用方法
+2. 🏗️ [架构概览](./architecture/) - 理解框架设计原理  
+3. 🛠️ 选择适合的使用指南：
+   - [BaseAgent 使用](./baseagent-usage.md) - 核心功能使用
+   - [SessionManager 使用](./session-manager-usage.md) - 会话管理
 
-### 开发者指南
-- **基础开发**: [BaseAgent使用指南](./baseagent-usage.md)
-- **工具开发**: [Tool定义和使用](./tool-definition.md)  
-- **会话管理**: [SessionManager使用指南](./session-manager-usage.md)
+### 开发者路径
+- **核心开发**: [BaseAgent 使用指南](./baseagent-usage.md)
+- **工具开发**: [工具系统](./tool-system/) → [自定义工具](./tool-system/custom-tools.md)
+- **架构理解**: [架构设计](./architecture/) → [Agent 运行循环](./architecture/agent-loop.md)
+- **事件处理**: [事件系统](./architecture/event-system.md)
 
-### 架构理解
-- **核心流程**: [Agent运行原理](./agent-loop-principle.md)
-- **事件系统**: [BaseAgent使用指南](./baseagent-usage.md)
-- **工具系统**: [Tool定义和使用](./tool-definition.md)
+### 高级用户路径  
+- **多会话管理**: [SessionManager 使用指南](./session-manager-usage.md)
+- **性能优化**: [架构设计](./architecture/agent-loop.md#性能优化策略)
+- **扩展开发**: [工具系统](./tool-system/) + [Chat 系统](./chat/)
 
-## 📋 文档更新记录
+## 🔄 文档关系图
 
-- ✅ 重新组织文档结构，按功能模块分类
-- ✅ 添加详细的 Agent Loop 运行原理说明
-- ✅ 完善所有 Agent Event 类型的处理方法
-- ✅ 增加工具确认机制和 callback 使用指南
-- ✅ 添加 SessionManager 完整使用文档
+```mermaid
+graph TD
+    A[快速开始] --> B[架构设计]
+    A --> C[使用指南]
+    
+    B --> D[Agent 运行循环]
+    B --> E[事件系统]
+    
+    C --> F[BaseAgent 使用]
+    C --> G[SessionManager 使用]
+    
+    H[工具系统] --> I[自定义工具]
+    H --> J[工具调度器]
+    
+    K[Chat 系统] --> L[多 LLM 支持]
+    K --> M[Token 管理]
+    
+    F --> E
+    G --> F
+    I --> E
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5  
+    style H fill:#fff3e0
+    style K fill:#e8f5e8
+```
 
-## 🔍 快速查找
+## 📋 功能特性速览
 
-### 常见问题
-- **如何处理 LLM 响应?** → [BaseAgent使用指南](./baseagent-usage.md#llm-响应事件)
-- **如何创建自定义工具?** → [Tool定义和使用](./tool-definition.md#创建自定义工具)
-- **如何管理多个会话?** → [SessionManager使用指南](./session-manager-usage.md#多会话管理)
-- **如何理解 Agent 执行流程?** → [Agent运行原理](./agent-loop-principle.md#详细执行步骤)
+### 🤖 Agent 核心
+- **多 LLM 支持**: Gemini、OpenAI、o1 系列
+- **流式响应**: 实时文本输出和状态反馈
+- **事件驱动**: 完整的执行状态监控
+- **异步处理**: 非阻塞的高性能架构
 
-### 事件类型速查
-- **UserMessage** - 用户消息事件
-- **ResponseStart** - LLM响应开始
-- **ResponseChunkTextDelta** - 文本流式更新
-- **ToolExecutionStart** - 工具执行开始
-- **TurnComplete** - 对话轮次完成
+### 🛠️ 工具系统
+- **自定义工具**: 灵活的工具定义接口
+- **并行执行**: 多工具同时执行优化
+- **安全确认**: 危险操作的确认机制
+- **状态追踪**: 完整的工具执行监控
 
-详细说明请查看 [BaseAgent使用指南](./baseagent-usage.md#agent-事件类型详解)
+### 💬 会话管理
+- **多会话**: 独立的对话上下文管理
+- **状态持久化**: 会话数据的保存和恢复
+- **智能清理**: 自动的内存和 Token 优化
+- **事件监控**: 会话级别的状态追踪
 
-### 配置选项速查
-- **ChatProvider**: `gemini` | `openai`
-- **ApprovalMode**: `yolo` | `default` | `always`
-- **LogLevel**: `DEBUG` | `INFO` | `WARN` | `ERROR`
+### 📊 性能优化
+- **Token 追踪**: 实时使用量统计和警告
+- **缓存机制**: OpenAI 响应缓存优化
+- **智能截断**: 自动的历史记录管理
+- **并发控制**: 合理的资源使用限制
 
-详细配置请查看 [快速开始](./quickstart.md#进阶配置)
+## 🎨 代码示例速查
 
-## 💡 使用提示
+### 基础使用
+```typescript
+import { StandardAgent } from '@continue-reasoning/mini-agent';
 
-1. **阅读顺序建议**: 快速开始 → Agent运行原理 → 具体使用指南
-2. **实践建议**: 结合 `examples/` 目录下的示例代码学习
-3. **调试技巧**: 启用 DEBUG 日志可以看到详细的执行过程
-4. **性能优化**: 注意监控 Token 使用量和工具执行时间
+const agent = new StandardAgent([], {
+  chatProvider: 'gemini',
+  agentConfig: { 
+    apiKey: process.env.GEMINI_API_KEY,
+    model: 'gemini-2.0-flash'
+  }
+});
+
+// 简单对话
+for await (const event of agent.processWithSession("Hello!")) {
+  if (event.type === 'response.chunk.text.done') {
+    console.log('AI:', event.data.content.text);
+  }
+}
+```
+
+### 多会话管理
+```typescript
+// 创建不同会话
+const session1 = agent.createNewSession("User Chat");
+const session2 = agent.createNewSession("Admin Console");
+
+// 独立的对话上下文
+await agent.processWithSession("帮我写代码", session1);
+await agent.processWithSession("系统状态检查", session2);
+```
+
+### 自定义工具
+```typescript
+const weatherTool: ITool = {
+  name: 'get_weather',
+  description: 'Get weather information',
+  // ... 工具实现
+};
+
+const agent = new StandardAgent([weatherTool], config);
+```
+
+## 🔍 常见问题速查
+
+### 模型选择
+- **gemini-2.0-flash**: 快速、经济，适合大多数场景
+- **gpt-4o**: 功能强大，适合复杂推理任务  
+- **o1 系列**: 支持深度思考，适合需要复杂分析的场景
+
+### 性能优化
+- 监控 Token 使用量避免超限
+- 使用会话管理分割不同主题
+- 合理配置工具并行数量
+- 启用缓存机制提升响应速度
+
+### 错误处理
+- 监听 `response.failed` 事件实现重试
+- 使用 AbortSignal 支持操作取消
+- 实现工具执行失败的降级策略
+
+## 💡 使用建议
+
+### 学习路径建议
+1. **初学者**: 快速开始 → BaseAgent 使用 → 简单工具开发
+2. **进阶用户**: 架构理解 → 事件系统 → 高级会话管理
+3. **专业开发**: 完整架构 → 自定义扩展 → 性能优化
+
+### 实践建议
+- 从简单的 demo 开始，逐步增加复杂性
+- 充分利用事件系统进行状态监控
+- 合理使用会话管理提升用户体验
+- 注意安全性，特别是涉及文件操作的工具
 
 ## 🤝 贡献文档
 
@@ -99,3 +186,5 @@
 ---
 
 **开始探索 MiniAgent 的强大功能吧！** 🚀
+
+> 💡 提示：推荐从[快速开始指南](./quickstart.md)开始您的 MiniAgent 之旅！

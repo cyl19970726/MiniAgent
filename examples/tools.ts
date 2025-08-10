@@ -5,7 +5,8 @@
  * Includes WeatherTool for getting weather data and SubTool for basic math operations.
  */
 
-import { BaseTool, ToolResult, Type, Schema } from '../src/index.js';
+import { BaseTool, Type, Schema } from '../src/index.js';
+import { DefaultToolResult } from '../src/interfaces.js';
 
 // ============================================================================
 // WEATHER TOOL
@@ -17,7 +18,19 @@ import { BaseTool, ToolResult, Type, Schema } from '../src/index.js';
  * This tool fetches weather data from the Open-Meteo API for any given
  * latitude and longitude coordinates.
  */
-export class WeatherTool extends BaseTool<{ latitude: number; longitude: number }> {
+/**
+ * Weather result interface for better type safety and structure
+ */
+export interface WeatherResult {
+  success: boolean;
+  latitude: number;
+  longitude: number;
+  temperature?: number;
+  unit?: string;
+  message: string;
+}
+
+export class WeatherTool extends BaseTool<{ latitude: number; longitude: number }, WeatherResult> {
   constructor() {
     super(
       'get_weather',
@@ -68,11 +81,47 @@ export class WeatherTool extends BaseTool<{ latitude: number; longitude: number 
     return `Get weather for coordinates (${params.latitude}, ${params.longitude})`;
   }
 
+  /**
+   * Core execution logic for weather fetching
+   * @param params Weather parameters
+   * @returns Weather result data
+   */
+  protected async executeCore(params: { latitude: number; longitude: number }): Promise<WeatherResult> {
+    const { latitude, longitude } = params;
+
+    try {
+      const temperature = await this.fetchWeatherData(latitude, longitude);
+      
+      return {
+        success: true,
+        latitude,
+        longitude,
+        temperature,
+        unit: '°C',
+        message: `Weather: ${temperature}°C at coordinates (${latitude}, ${longitude})`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        latitude,
+        longitude,
+        message: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * Enhanced execute method with progress reporting
+   * @param params Tool parameters
+   * @param abortSignal Abort signal for cancellation
+   * @param outputUpdateHandler Optional output update handler
+   * @returns DefaultToolResult containing weather data
+   */
   async execute(
     params: { latitude: number; longitude: number },
     abortSignal: AbortSignal,
     outputUpdateHandler?: (output: string) => void
-  ): Promise<ToolResult> {
+  ): Promise<DefaultToolResult<WeatherResult>> {
     const { latitude, longitude } = params;
     
     if (outputUpdateHandler) {
@@ -87,29 +136,21 @@ export class WeatherTool extends BaseTool<{ latitude: number; longitude: number 
         outputUpdateHandler(this.formatProgress('Contacting API', 'open-meteo.com', '🌐'));
       }
 
-      const temperature = await this.fetchWeatherData(latitude, longitude);
+      const result = await this.executeCore(params);
       
       // Check for cancellation after API call
       this.checkAbortSignal(abortSignal, 'Weather fetch');
 
-      const result = {
+      return new DefaultToolResult(result);
+    } catch (error) {
+      const errorResult: WeatherResult = {
+        success: false,
         latitude,
         longitude,
-        temperature,
-        unit: '°C',
-        success: true
+        message: error instanceof Error ? error.message : String(error)
       };
-
-      return this.createJsonStrResult(
-        `Weather: ${temperature}°C at coordinates (${latitude}, ${longitude})`,
-      );
-    } catch (error) {
-      return this.createJsonStrResult(
-        {
-          success: false,
-          message: error instanceof Error ? error : new Error(String(error)),
-        },
-      );
+      
+      return new DefaultToolResult(errorResult);
     }
   }
 
@@ -145,7 +186,20 @@ export class WeatherTool extends BaseTool<{ latitude: number; longitude: number 
  * This tool performs subtraction between two numbers and provides
  * detailed calculation information.
  */
-export class SubTool extends BaseTool<{ minuend: number; subtrahend: number }> {
+/**
+ * Subtraction result interface for better type safety and structure
+ */
+export interface SubtractionResult {
+  success: boolean;
+  operation: string;
+  result: number;
+  minuend: number;
+  subtrahend: number;
+  isNegative: boolean;
+  message: string;
+}
+
+export class SubTool extends BaseTool<{ minuend: number; subtrahend: number }, SubtractionResult> {
   constructor() {
     super(
       'subtract',
@@ -192,11 +246,45 @@ export class SubTool extends BaseTool<{ minuend: number; subtrahend: number }> {
     return `Subtract ${params.subtrahend} from ${params.minuend}`;
   }
 
+  /**
+   * Core execution logic for subtraction
+   * @param params Subtraction parameters
+   * @returns Subtraction result data
+   */
+  protected async executeCore(params: { minuend: number; subtrahend: number }): Promise<SubtractionResult> {
+    const { minuend, subtrahend } = params;
+
+    // Simulate brief calculation delay
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const result = minuend - subtrahend;
+    const operation = `${minuend} - ${subtrahend} = ${result}`;
+    const isNegative = result < 0;
+    const info = isNegative ? 'negative result' : 'positive result';
+
+    return {
+      success: true,
+      operation,
+      result,
+      minuend,
+      subtrahend,
+      isNegative,
+      message: `${operation} (${info})`
+    };
+  }
+
+  /**
+   * Enhanced execute method with progress reporting
+   * @param params Tool parameters
+   * @param abortSignal Abort signal for cancellation
+   * @param outputUpdateHandler Optional output update handler
+   * @returns DefaultToolResult containing subtraction data
+   */
   async execute(
     params: { minuend: number; subtrahend: number },
     abortSignal: AbortSignal,
     outputUpdateHandler?: (output: string) => void
-  ): Promise<ToolResult> {
+  ): Promise<DefaultToolResult<SubtractionResult>> {
     const { minuend, subtrahend } = params;
     
     if (outputUpdateHandler) {
@@ -207,33 +295,24 @@ export class SubTool extends BaseTool<{ minuend: number; subtrahend: number }> {
       // Check for cancellation
       this.checkAbortSignal(abortSignal, 'Subtraction calculation');
 
-      // Simulate brief calculation delay
-      await new Promise(resolve => setTimeout(resolve, 100));
+      const result = await this.executeCore(params);
 
-      // Check for cancellation after delay
+      // Check for cancellation after calculation
       this.checkAbortSignal(abortSignal, 'Subtraction calculation');
 
-      const result = minuend - subtrahend;
-      const operation = `${minuend} - ${subtrahend} = ${result}`;
-      
-      // Additional calculation info
-      const absResult = Math.abs(result);
-      const isNegative = result < 0;
-      const info = isNegative ? 'negative result' : 'positive result';
-
-      return this.createJsonStrResult(
-        {
-          success: true,
-          message: `${operation} (${info})`,
-        },
-      );
+      return new DefaultToolResult(result);
     } catch (error) {
-      return this.createJsonStrResult(
-        {
-          success: false,
-          Error: error instanceof Error ? error : new Error(String(error)),
-        },
-      );
+      const errorResult: SubtractionResult = {
+        success: false,
+        operation: `${minuend} - ${subtrahend}`,
+        result: 0,
+        minuend,
+        subtrahend,
+        isNegative: false,
+        message: error instanceof Error ? error.message : String(error)
+      };
+      
+      return new DefaultToolResult(errorResult);
     }
   }
 }
@@ -317,19 +396,16 @@ export async function getWeatherForCity(cityName: string): Promise<{ city: strin
   
   try {
     const result = await weatherTool.execute(coordinates, abortController.signal);
+    const weatherData = result.data;
     
-      // Check if the result contains an error
-      if (result.result.includes('Error:') || result.result.includes('❌')) {
-        return null;
-      }
-      
-      // Parse temperature from result
-    const match = result.result.match(/(-?\d+(?:\.\d+)?)°C/);
-    const temperature = match ? parseFloat(match[1]) : 0;
+    // Check if the result was successful
+    if (!weatherData.success || weatherData.temperature === undefined) {
+      return null;
+    }
     
     return {
       city: cityName,
-      temperature,
+      temperature: weatherData.temperature,
       coordinates
     };
   } catch (error) {
