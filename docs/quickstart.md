@@ -274,8 +274,9 @@ configureLogger({
 
 ## 下一步
 
-- 查看[完整文档](./session-manager-design.md)了解详细功能
-- 参考[架构设计](./architecture.md)理解内部原理
+- 查看[SessionManager 使用指南](./session-manager-usage.md)了解会话管理功能
+- 参考[架构设计](./architecture/)理解内部原理
+- 学习[自定义工具](./tool-system/custom-tools.md)开发强大的工具
 - 探索[示例代码](../examples/)学习最佳实践
 
 ## 常见问题

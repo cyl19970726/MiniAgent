@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WeatherTool, SubTool, getCityCoordinates, getWeatherForCity, CITY_COORDINATES } from '../../../examples/tools.js';
+import { WeatherTool, SubTool, getCityCoordinates, getWeatherForCity, CITY_COORDINATES, WeatherResult, SubtractionResult } from '../../../examples/tools.js';
 
 // Mock fetch for weather API tests
 const mockFetch = vi.fn();
@@ -94,9 +94,11 @@ describe('WeatherTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('25.5°C');
-      expect(result.returnDisplay).toContain('🌤️');
-      expect(result.summary).toContain('Retrieved weather: 25.5°C');
+      expect(result.data.success).toBe(true);
+      expect(result.data.temperature).toBe(25.5);
+      expect(result.data.latitude).toBe(39.9042);
+      expect(result.data.longitude).toBe(116.4074);
+      expect(result.data.message).toContain('25.5°C');
     });
 
     it('should handle API errors', async () => {
@@ -111,8 +113,8 @@ describe('WeatherTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('Error:');
-      expect(result.returnDisplay).toContain('❌');
+      expect(result.data.success).toBe(false);
+      expect(result.data.message).toContain('Weather API error');
     });
 
     it('should handle network errors', async () => {
@@ -123,8 +125,8 @@ describe('WeatherTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('Error:');
-      expect(result.returnDisplay).toContain('❌');
+      expect(result.data.success).toBe(false);
+      expect(result.data.message).toContain('Network error');
     });
 
     it('should handle abort signal', async () => {
@@ -135,8 +137,8 @@ describe('WeatherTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('cancelled');
-      expect(result.returnDisplay).toContain('❌');
+      expect(result.data.success).toBe(false);
+      expect(result.data.message).toContain('cancelled');
     });
 
     it('should handle output updates', async () => {
@@ -240,9 +242,11 @@ describe('SubTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('10 - 3 = 7');
-      expect(result.returnDisplay).toContain('➖');
-      expect(result.summary).toContain('Subtraction result: 7');
+      expect(result.data.success).toBe(true);
+      expect(result.data.result).toBe(7);
+      expect(result.data.operation).toBe('10 - 3 = 7');
+      expect(result.data.isNegative).toBe(false);
+      expect(result.data.message).toContain('positive result');
     });
 
     it('should execute successfully with negative result', async () => {
@@ -251,9 +255,11 @@ describe('SubTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('3 - 10 = -7');
-      expect(result.llmContent).toContain('negative result');
-      expect(result.summary).toContain('Subtraction result: -7');
+      expect(result.data.success).toBe(true);
+      expect(result.data.result).toBe(-7);
+      expect(result.data.operation).toBe('3 - 10 = -7');
+      expect(result.data.isNegative).toBe(true);
+      expect(result.data.message).toContain('negative result');
     });
 
     it('should handle decimal numbers', async () => {
@@ -262,8 +268,10 @@ describe('SubTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('10.5 - 3.2 = 7.3');
-      expect(result.returnDisplay).toContain('➖');
+      expect(result.data.success).toBe(true);
+      expect(result.data.result).toBe(7.3);
+      expect(result.data.operation).toBe('10.5 - 3.2 = 7.3');
+      expect(result.data.isNegative).toBe(false);
     });
 
     it('should handle zero result', async () => {
@@ -272,8 +280,10 @@ describe('SubTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('5 - 5 = 0');
-      expect(result.returnDisplay).toContain('➖');
+      expect(result.data.success).toBe(true);
+      expect(result.data.result).toBe(0);
+      expect(result.data.operation).toBe('5 - 5 = 0');
+      expect(result.data.isNegative).toBe(false);
     });
 
     it('should handle abort signal', async () => {
@@ -284,8 +294,8 @@ describe('SubTool', () => {
         mockAbortController.signal
       );
 
-      expect(result.llmContent).toContain('cancelled');
-      expect(result.returnDisplay).toContain('❌');
+      expect(result.data.success).toBe(false);
+      expect(result.data.message).toContain('cancelled');
     });
 
     it('should handle output updates', async () => {

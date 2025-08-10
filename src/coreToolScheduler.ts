@@ -429,21 +429,31 @@ export class CoreToolScheduler implements IToolScheduler {
       };
 
       // Execute the tool
-      const result = await executingCall.tool.execute(
+      const toolResult = await executingCall.tool.execute(
         scheduledCall.request.args,
         this.abortController?.signal || new AbortController().signal,
         updateOutput,
       );
 
-      // Move to success state
+      // Move to success state with enhanced response info
+      const startTime = scheduledCall.startTime || Date.now();
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
       const successCall: ISuccessfulToolCall = {
         ...executingCall,
         status: ToolCallStatus.Success,
         response: {
           callId: scheduledCall.request.callId,
-          result: result.result,
+          result: toolResult,
+          success: true,
+          duration,
+          metadata: {
+            startTime,
+            endTime,
+          },
         },
-        durationMs: Date.now() - (scheduledCall.startTime || Date.now()),
+        durationMs: duration,
       };
       
       this.toolCalls.set(scheduledCall.request.callId, successCall);
@@ -528,16 +538,25 @@ export class CoreToolScheduler implements IToolScheduler {
    * Cancel tool call synchronously
    */
   private cancelToolCallSync(toolCall: IToolCall, reason: string): void {
+    const startTime = toolCall.startTime || Date.now();
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
     const cancelledCall: ICancelledToolCall = {
       ...toolCall,
       status: ToolCallStatus.Cancelled,
       tool: 'tool' in toolCall ? toolCall.tool : {} as ITool,
       response: {
         callId: toolCall.request.callId,
-        result: `Tool call cancelled: ${reason}`,
+        success: false,
         error: new Error(reason),
+        duration,
+        metadata: {
+          startTime,
+          endTime,
+        },
       },
-      durationMs: Date.now() - (toolCall.startTime || Date.now()),
+      durationMs: duration,
     };
     
     this.toolCalls.set(toolCall.request.callId, cancelledCall);
@@ -555,16 +574,26 @@ export class CoreToolScheduler implements IToolScheduler {
    */
   private async handleToolCallError(toolCall: IToolCall, error: unknown): Promise<void> {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorObj = error instanceof Error ? error : new Error(errorMessage);
+    
+    const startTime = toolCall.startTime || Date.now();
+    const endTime = Date.now();
+    const duration = endTime - startTime;
     
     const erroredCall: IErroredToolCall = {
       ...toolCall,
       status: ToolCallStatus.Error,
       response: {
         callId: toolCall.request.callId,
-        result: `Tool execution failed: ${errorMessage}`,
-        error: error instanceof Error ? error : new Error(errorMessage),
+        success: false,
+        error: errorObj,
+        duration,
+        metadata: {
+          startTime,
+          endTime,
+        },
       },
-      durationMs: Date.now() - (toolCall.startTime || Date.now()),
+      durationMs: duration,
     };
     
     this.toolCalls.set(toolCall.request.callId, erroredCall);

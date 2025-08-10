@@ -216,7 +216,7 @@ export abstract class BaseAgent implements IAgent {
           
           // Check if this turn had tool calls
           if (event.type === AgentEventType.TurnComplete) {
-            turnHadToolCalls = (event.data as any).hasToolCalls;
+            turnHadToolCalls = (event.data as {hasToolCalls: boolean}).hasToolCalls;
           }
         }
         
@@ -360,7 +360,7 @@ export abstract class BaseAgent implements IAgent {
                 ...(request.functionId && { id: request.functionId }),
                 call_id: request.callId, // Use call_ prefixed ID
                 name: request.name,
-                result: response.result!,
+                result: response.result ? response.result.toHistoryStr() : (response.error?.message || 'Tool execution failed'),
               },
             },
             turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking

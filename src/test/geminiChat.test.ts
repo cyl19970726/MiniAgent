@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GeminiChat } from '../geminiChat.js';
+import { GeminiChat } from '../chat/geminiChat.js';
 import { TokenTracker } from '../chat/tokenTracker.js';
 import {
   ChatMessage,
