@@ -70,7 +70,32 @@ export interface FileDiff {
 }
 
 /**
- * Tool execution result - compatible with core package ToolResult
+ * Base interface for tool results with customizable history rendering
+ */
+export interface IToolResult {
+  toHistoryStr(): string;
+}
+
+/**
+ * Default implementation of IToolResult using unknown for type safety
+ * Exposes properties of the wrapped data directly for backwards compatibility
+ */
+export class DefaultToolResult<T = unknown> implements IToolResult {
+  constructor(public data: T) {
+    // Proxy properties from data to make them directly accessible
+    if (data && typeof data === 'object') {
+      Object.assign(this, data);
+    }
+  }
+  
+  toHistoryStr(): string {
+    return JSON.stringify(this.data);
+  }
+}
+
+/**
+ * Legacy tool result interface - maintained for backward compatibility
+ * @deprecated Use IToolResult and DefaultToolResult instead
  */
 export interface ToolResult {
   result: string; // success message or error message
@@ -161,7 +186,7 @@ export type ToolCallConfirmationDetails =
  */
 export interface ITool<
   TParams = unknown,
-  TResult extends ToolResult = ToolResult,
+  TResult extends IToolResult = DefaultToolResult,
 > {
   /** Tool name */
   name: string;
@@ -226,7 +251,8 @@ export interface ITool<
 // ============================================================================
 
 /**
- * Tool call request information
+ * Legacy tool call request - maintained for backward compatibility
+ * @deprecated Use IToolCallRequestInfo instead
  */
 export interface ToolCallRequest {
   /** Call ID */
@@ -420,7 +446,7 @@ export function createAgentEventFromLLMResponse(
 // ============================================================================
 
 /**
- * Tool call request information - compatible with core package
+ * Tool call request information - unified interface merging previous redundant interfaces
  */
 export interface IToolCallRequestInfo {
   /** Unique call identifier (call_ prefix) */
@@ -438,15 +464,81 @@ export interface IToolCallRequestInfo {
 }
 
 /**
- * Tool call response information - compatible with core package
+ * Static factory methods for IToolCallRequestInfo
+ */
+export namespace IToolCallRequestInfo {
+  /**
+   * Create tool call request from ContentPart
+   */
+  export function fromContentPart(content: ContentPart): IToolCallRequestInfo | null {
+    if (content.type !== 'function_call' || !content.functionCall) {
+      return null;
+    }
+
+    const functionCall = content.functionCall;
+    const requestInfo: IToolCallRequestInfo = {
+      callId: functionCall.call_id,
+      name: functionCall.name,
+      args: JSON.parse(functionCall.args || '{}'),
+      isClientInitiated: false,
+      promptId: '', // Will need to be set by caller
+    };
+    
+    // Only add functionId if it exists
+    if (functionCall.id) {
+      requestInfo.functionId = functionCall.id;
+    }
+    
+    return requestInfo;
+  }
+}
+
+/**
+ * Tool call response information - enhanced with execution metadata
  */
 export interface IToolCallResponseInfo {
   /** Call identifier */
   callId: string;
-  /** Display content for UI */
-  result?: string;
+  /** Tool execution result */
+  result?: IToolResult;
+  /** Execution success flag */
+  success: boolean;
   /** Error if execution failed */
   error?: Error;
+  /** Execution duration in milliseconds */
+  duration?: number;
+  /** Execution metadata */
+  metadata?: {
+    startTime: number;
+    endTime: number;
+    memoryUsage?: number;
+  };
+}
+
+/**
+ * Static factory methods for IToolCallResponseInfo
+ */
+export namespace IToolCallResponseInfo {
+  /**
+   * Convert tool call response to ContentPart for chat history
+   */
+  export function toContentPart(response: IToolCallResponseInfo, request: IToolCallRequestInfo): ContentPart {
+    const content: ContentPart = {
+      type: 'function_response',
+      functionResponse: {
+        call_id: request.callId,
+        name: request.name,
+        result: response.result ? response.result.toHistoryStr() : (response.error?.message || 'Unknown error'),
+      },
+    };
+    
+    // Add functionId if it exists in the request
+    if (request.functionId) {
+      content.functionResponse!.id = request.functionId;
+    }
+    
+    return content;
+  }
 }
 
 /**

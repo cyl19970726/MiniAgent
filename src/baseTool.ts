@@ -16,6 +16,7 @@
 import { Schema } from '@google/genai';
 import { 
   ITool, 
+  DefaultToolResult,
   ToolResult, 
   ToolCallConfirmationDetails, 
   ToolDeclaration,
@@ -61,8 +62,8 @@ import {
  */
 export abstract class BaseTool<
   TParams = unknown,
-  TResult extends ToolResult = ToolResult,
-> implements ITool<TParams, TResult> {
+  TResult = unknown,
+> implements ITool<TParams, DefaultToolResult<TResult>> {
   /**
    * Creates a new instance of BaseTool
    * 
@@ -160,23 +161,19 @@ export abstract class BaseTool<
     return false;
   }
 
+  
   /**
-   * Abstract method to execute the tool with the given parameters
+   * Abstract method that derived classes implement for tool execution
    * 
-   * This method must be implemented by derived classes to provide the actual
-   * tool functionality. It should handle the tool's core logic and return
-   * appropriate results.
-   * 
-   * @param params - Parameters for the tool execution
-   * @param signal - AbortSignal for tool cancellation
-   * @param updateOutput - Optional callback for streaming output updates
-   * @returns Promise resolving to the tool execution result
+   * This is the main method that derived classes must implement to provide
+   * their specific functionality. It receives validated parameters and should
+   * return a structured result.
    */
   abstract execute(
     params: TParams,
     signal: AbortSignal,
     updateOutput?: (output: string) => void,
-  ): Promise<TResult>;
+  ): Promise<DefaultToolResult<TResult>>;
 
   /**
    * Helper method to create a basic tool result
@@ -185,13 +182,96 @@ export abstract class BaseTool<
    * consistent formatting. It's useful for simple tools that don't
    * need complex result structures.
    * 
-   * @param content - The main content for LLM consumption
-   * @param display - The display content for users
+   * @param llmContent - Content to send to the LLM
+   * @param returnDisplay - Content to display to the user
    * @param summary - Optional summary of the operation
    * @returns A properly formatted ToolResult
    */
+  protected createResult(
+    llmContent: string,
+    returnDisplay?: string,
+    summary?: string,
+  ): { llmContent: string; returnDisplay?: string; summary?: string } {
+    const result: { llmContent: string; returnDisplay?: string; summary?: string } = {
+      llmContent,
+    };
+    
+    if (returnDisplay !== undefined) {
+      result.returnDisplay = returnDisplay;
+    }
+    
+    if (summary !== undefined) {
+      result.summary = summary;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Helper method to create error tool results
+   * 
+   * This utility method creates standardized error results with
+   * consistent formatting across all tools.
+   * 
+   * @param error - Error object or string
+   * @param context - Optional context for the error
+   * @returns A properly formatted error ToolResult
+   */
+  protected createErrorResult(
+    error: Error | string,
+    context?: string,
+  ): { llmContent: string; returnDisplay: string; summary: string } {
+    const errorMessage = error instanceof Error ? error.message : error;
+    const fullError = context ? `${context}: ${errorMessage}` : errorMessage;
+    
+    return {
+      llmContent: `Error: ${fullError}`,
+      returnDisplay: `❌ Error: ${fullError}`,
+      summary: `Failed: ${errorMessage}`,
+    };
+  }
+
+  /**
+   * Helper method to create file diff results
+   * 
+   * This utility method creates results for file operations that include
+   * diff information for display purposes.
+   * 
+   * @param fileName - Name of the file that was modified
+   * @param fileDiff - Diff content showing changes
+   * @param llmContent - Content to send to the LLM
+   * @param summary - Summary of the operation
+   * @returns A properly formatted file diff ToolResult
+   */
+  protected createFileDiffResult(
+    fileName: string,
+    fileDiff: string,
+    llmContent: string,
+    summary?: string,
+  ): { llmContent: string; returnDisplay: { fileName: string; fileDiff: string }; summary?: string } {
+    const result: { llmContent: string; returnDisplay: { fileName: string; fileDiff: string }; summary?: string } = {
+      llmContent,
+      returnDisplay: {
+        fileName,
+        fileDiff,
+      },
+    };
+    
+    if (summary !== undefined) {
+      result.summary = summary;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Helper method to create a basic tool result for JSON serialization
+   * 
+   * @param result - The result data to wrap
+   * @returns A properly formatted ToolResult
+   */
   protected createJsonStrResult(
-    result: any,
+    result: unknown,
   ): ToolResult {
     const res : ToolResult = {
       result: JSON.stringify(result),
@@ -316,7 +396,7 @@ export abstract class BaseTool<
  * );
  * ```
  */
-export class SimpleTool<TParams = unknown> extends BaseTool<TParams> {
+export class SimpleTool<TParams = unknown, TResult = unknown> extends BaseTool<TParams, TResult> {
   /**
    * Creates a new SimpleTool instance
    * 
@@ -337,7 +417,7 @@ export class SimpleTool<TParams = unknown> extends BaseTool<TParams> {
       params: TParams,
       signal: AbortSignal,
       updateOutput?: (output: string) => void,
-    ) => Promise<ToolResult>,
+    ) => Promise<TResult>,
     isOutputMarkdown: boolean = true,
     canUpdateOutput: boolean = false,
   ) {
@@ -348,26 +428,28 @@ export class SimpleTool<TParams = unknown> extends BaseTool<TParams> {
    * Executes the tool using the provided executor function
    * 
    * @param params - Parameters for the tool execution
-   * @param signal - AbortSignal for cancellation
-   * @param updateOutput - Optional callback for streaming output
+   * @param signal - Abort signal for cancellation
+   * @param updateOutput - Callback for streaming output
    * @returns Promise resolving to the tool execution result
    */
   async execute(
     params: TParams,
     signal: AbortSignal,
     updateOutput?: (output: string) => void,
-  ): Promise<ToolResult> {
+  ): Promise<DefaultToolResult<TResult>> {
     // Validate parameters before execution
     const validationError = this.validateToolParams(params);
     if (validationError) {
-      return this.createJsonStrResult(validationError);
+      const errorResult = this.createErrorResult(validationError);
+      return new DefaultToolResult(errorResult as TResult);
     }
 
     try {
-      this.checkAbortSignal(signal, 'Tool execution');
-      return await this.executor(params, signal, updateOutput);
+      const result = await this.executor(params, signal, updateOutput);
+      return new DefaultToolResult(result);
     } catch (error) {
-      return this.createJsonStrResult(error instanceof Error ? error : new Error(String(error)));
+      const errorResult = this.createErrorResult(error instanceof Error ? error : new Error(String(error)));
+      return new DefaultToolResult(errorResult as TResult);
     }
   }
 }

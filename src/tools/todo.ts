@@ -1,10 +1,9 @@
 import { Type } from "../..";
 import { BaseTool } from "../baseTool";
-import { ToolResult } from "../interfaces";
 
 let GlobalTodoList: string[] = [];
 
-export class TodoTool extends BaseTool {
+export class TodoTool extends BaseTool<{ op: "update" | "get", todo: string[] }, { success: boolean, result: string | string[] }> {
     constructor() {
         super(
             "todo", 
@@ -31,19 +30,19 @@ export class TodoTool extends BaseTool {
         );
     }
 
-    async execute(params: { op: "update" | "get", todo: string[] }): Promise<ToolResult> {
+    protected async executeCore(params: { op: "update" | "get", todo: string[] }): Promise<{ success: boolean, result: string | string[] }> {
         switch (params.op) {
             case "update":
                 GlobalTodoList = params.todo;
-                return this.createJsonStrResult({
+                return {
                     success: true,
                     result: `Todo updated: ${GlobalTodoList.join(", ")}`
-                });
+                };
             case "get":
-                return this.createJsonStrResult({
+                return {
                     success: true,
                     result: GlobalTodoList
-                });
+                };
         }
     }
 }
