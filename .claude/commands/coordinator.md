@@ -134,7 +134,7 @@ For every development task:
    ```
 
 3. **Create Coordinator Plan (coordinator-plan.md)**
-   **IMPORTANT**: This is the coordinator's execution strategy. Create this file FIRST to plan parallel execution:
+   **IMPORTANT**: This is the coordinator's execution strategy. Create this file FIRST to plan parallel subagent execution:
    
    ```markdown
    # Coordinator Plan for TASK-XXX
@@ -156,11 +156,11 @@ For every development task:
    
    ### Phase 2: Dependent Modules (After Phase 1)
    Execute after Phase 1 completes:
-   - test-dev-4: Integration tests
-   - agent-dev-1: Core changes based on test results
+   - test-dev(4) subagent: Integration tests
+   - agent-dev(1) subagent: Core changes based on test results
    
    ### Phase 3: Review and Finalization
-   - reviewer-1: Review all changes
+   - reviewer(1) subagent: Review all changes
    
    ## Resource Allocation
    - Total subagents needed: 8
@@ -173,7 +173,7 @@ For every development task:
    - Efficiency gain: 75%
    
    ## Risk Mitigation
-   - If test-dev-1 fails: Continue with others, reassign later
+   - If test-dev(1) subagent fails: Continue with others, reassign later
    - If dependencies change: Update phase grouping
    ```
 
@@ -201,7 +201,7 @@ For every development task:
    - Timeline
 
 3. **Agent Instructions Template**
-   When calling each agent, use this format:
+   When calling each subagent, use this format:
    ```
    @[agent-name] "
    Task: [Specific task description]

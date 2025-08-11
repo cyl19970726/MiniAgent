@@ -152,3 +152,23 @@ export {
 export { Type } from '@google/genai';
 export type { Schema } from '@google/genai';
 
+// ============================================================================
+// MCP INTEGRATION (OPTIONAL)
+// ============================================================================
+
+// MCP (Model Context Protocol) integration for external tool servers
+export { 
+  SimpleMcpClient, 
+  McpToolAdapter, 
+  createMcpTools,
+  McpManager 
+} from './mcp-sdk/index.js';
+
+export type { 
+  McpConfig, 
+  McpTool, 
+  McpToolResult, 
+  McpServerInfo,
+  McpServerConfig 
+} from './mcp-sdk/index.js';
+

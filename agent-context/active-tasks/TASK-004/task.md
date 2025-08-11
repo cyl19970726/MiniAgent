@@ -5,7 +5,7 @@
 - **Name**: MCP Tool Integration
 - **Category**: [TOOL] [CORE]
 - **Created**: 2025-08-10
-- **Status**: In Progress
+- **Status**: Complete
 
 ## Description
 Integrate MCP (Model Context Protocol) support into MiniAgent framework to enable:
