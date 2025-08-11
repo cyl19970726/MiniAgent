@@ -9,8 +9,8 @@
  * - Dynamic server management
  */
 
-import { StandardAgent, AllConfig, configureLogger, LogLevel, McpServerConfig } from '../src/index.js';
-import path from 'path';
+import { StandardAgent, AllConfig, configureLogger, LogLevel, McpServerConfig, AgentEventType } from '../src/index.js';
+import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 // Configure logging
@@ -98,13 +98,13 @@ async function runMcpAgentExample(): Promise<void> {
       const eventStream = agent.processWithSession(query, sessionId);
       
       for await (const event of eventStream) {
-        if (event.type === 'text_chunk_delta') {
-          process.stdout.write(event.chunk.content);
-        } else if (event.type === 'tool_call_start') {
-          console.log(`\n🔧 Calling tool: ${event.toolCall.name}`);
-        } else if (event.type === 'tool_call_complete') {
-          console.log(`✅ Tool completed: ${event.toolCall.name}`);
-        } else if (event.type === 'text_chunk_done') {
+        if (event.type === AgentEventType.ResponseChunkTextDelta) {
+          process.stdout.write((event.data as any)?.content || '');
+        } else if (event.type === AgentEventType.ToolExecutionStart) {
+          console.log(`\n🔧 Calling tool: ${(event.data as any)?.name || 'unknown'}`);
+        } else if (event.type === AgentEventType.ToolExecutionDone) {
+          console.log(`✅ Tool completed: ${(event.data as any)?.name || 'unknown'}`);
+        } else if (event.type === AgentEventType.ResponseComplete) {
           console.log('\n');
         }
       }
