@@ -1,7 +1,10 @@
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Server configuration
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const serverScriptPath = path.resolve(__dirname, './server.ts');
 const serverReadyMessage = "[Server] SSE server listening on port 3001";
 const serverUrl = 'http://localhost:3001/sse';

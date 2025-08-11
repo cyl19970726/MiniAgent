@@ -124,13 +124,13 @@ For every development task:
 2. **Create Task Structure**
    ```
    /agent-context/tasks/TASK-XXX/
-   ├── coordinator-plan.md     # Coordinator's parallel execution strategy
-   ├── task.md                 # Task tracking and status
-   ├── design.md              # Architecture decisions
-   └── reports/               # Agent execution reports
+   ├── task.md                 # WHAT: Task description and requirements
+   ├── architecture.md         # HOW: Technical approach and implementation strategy
+   ├── coordinator-plan.md     # EXECUTION: Parallel execution strategy
+   └── reports/               # RESULTS: Agent execution reports
        ├── report-test-dev-1.md
        ├── report-test-dev-2.md
-       └── report-[agent-name].md
+       └── report-[agent-name]-[id].md
    ```
 
 3. **Create Coordinator Plan (coordinator-plan.md)**

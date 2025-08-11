@@ -12,8 +12,10 @@ import {
   AgentSession,
   AgentEvent,
   IAgentStatus,
-  MessageItem
+  MessageItem,
+  McpServerConfig
 } from "./interfaces";
+import { McpManager, McpToolAdapter } from './mcp-sdk/index.js';
 
 /**
  * Internal session manager implementation
@@ -180,6 +182,9 @@ class InternalSessionManager implements ISessionManager {
 export class StandardAgent extends BaseAgent implements IStandardAgent {
   sessionManager: InternalSessionManager;
   private currentSessionId: string;
+  private mcpManager?: McpManager;
+  private mcpToolRegistry: Map<string, { serverName: string; originalName: string }> = new Map();
+  private fullConfig: AllConfig;
 
   constructor(
     public tools: ITool[],
@@ -211,12 +216,27 @@ export class StandardAgent extends BaseAgent implements IStandardAgent {
     });
     super(config.agentConfig, chat, toolScheduler);
 
+    // Store config for later use
+    this.fullConfig = config;
+
     // Initialize session manager
     this.sessionManager = new InternalSessionManager(this);
     this.currentSessionId = this.sessionManager.createSession('Default Session');
     
     // Set initial session without state switching since we're starting fresh
     this.sessionManager.setCurrentSession(this.currentSessionId);
+
+    // Initialize MCP if configured
+    if (config.agentConfig.mcp?.enabled) {
+      this.mcpManager = new McpManager();
+      
+      // Auto-connect servers if configured
+      if (config.agentConfig.mcp.autoDiscoverTools && config.agentConfig.mcp.servers) {
+        this.initializeMcpServers(config.agentConfig.mcp.servers).catch(error => {
+          console.warn('Failed to initialize MCP servers:', error);
+        });
+      }
+    }
   }
 
   // Enhanced process method with session support
@@ -321,5 +341,232 @@ export class StandardAgent extends BaseAgent implements IStandardAgent {
       ...baseStatus,
       ...(sessionInfo ? { sessionInfo } : {})
     };
+  }
+
+  // Enhanced tool registration to track MCP tools
+  override registerTool(tool: ITool): void {
+    // Track MCP tools in separate registry
+    if ((tool as any).metadata?.isMcpTool) {
+      this.mcpToolRegistry.set(tool.name, {
+        serverName: (tool as any).metadata.serverName,
+        originalName: (tool as any).metadata.originalName
+      });
+    }
+    
+    // Register with base agent
+    super.registerTool(tool);
+  }
+
+  // Enhanced tool removal to clean up MCP registry
+  override removeTool(toolName: string): boolean {
+    // Remove from MCP registry if present
+    this.mcpToolRegistry.delete(toolName);
+    
+    // Remove from base agent
+    return super.removeTool(toolName);
+  }
+
+  // ============================================================================
+  // MCP MANAGEMENT METHODS
+  // ============================================================================
+
+  /**
+   * Add an MCP server and register its tools
+   */
+  async addMcpServer(config: McpServerConfig): Promise<ITool[]> {
+    if (!this.mcpManager) {
+      throw new Error('MCP is not enabled. Set agentConfig.mcp.enabled = true');
+    }
+    
+    const mcpTools = await this.mcpManager.addServer(config);
+    const tools = this.convertMcpToolsToITools(mcpTools, config.name);
+    
+    // Register tools with the agent
+    tools.forEach(tool => this.registerTool(tool));
+    
+    return tools;
+  }
+
+  /**
+   * Remove an MCP server and unregister its tools
+   */
+  async removeMcpServer(name: string): Promise<boolean> {
+    if (!this.mcpManager) return false;
+    
+    try {
+      // Remove tools from agent first
+      const mcpTools = this.mcpManager.getServerTools(name);
+      mcpTools.forEach(mcpTool => {
+        const toolName = this.generateToolName(mcpTool.name, name);
+        this.removeTool(toolName);
+      });
+      
+      // Remove server
+      await this.mcpManager.removeServer(name);
+      return true;
+    } catch (error) {
+      console.warn(`Failed to remove MCP server '${name}':`, error);
+      return false;
+    }
+  }
+
+  /**
+   * List all registered MCP servers
+   */
+  listMcpServers(): string[] {
+    return this.mcpManager?.listServers() || [];
+  }
+
+  /**
+   * Get connection status for an MCP server
+   */
+  getMcpServerStatus(name: string): { connected: boolean; toolCount: number } | null {
+    if (!this.mcpManager) return null;
+    
+    const serverInfo = this.mcpManager.getServersInfo().find(info => info.name === name);
+    return serverInfo ? { connected: serverInfo.connected, toolCount: serverInfo.toolCount } : null;
+  }
+
+  /**
+   * Get tools from MCP servers
+   */
+  getMcpTools(serverName?: string): ITool[] {
+    if (!this.mcpManager) return [];
+    
+    if (serverName) {
+      // Get tools from specific server
+      const mcpTools = this.mcpManager.getServerTools(serverName);
+      return mcpTools
+        .map(mcpTool => this.getTool(this.generateToolName(mcpTool.name, serverName)))
+        .filter((tool): tool is ITool => tool !== undefined);
+    } else {
+      // Get all MCP tools from registry
+      const allMcpTools: ITool[] = [];
+      this.mcpToolRegistry.forEach((_, toolName) => {
+        const tool = this.getTool(toolName);
+        if (tool) {
+          allMcpTools.push(tool);
+        }
+      });
+      return allMcpTools;
+    }
+  }
+
+  /**
+   * Refresh tools from MCP servers
+   */
+  async refreshMcpTools(serverName?: string): Promise<ITool[]> {
+    if (!this.mcpManager) return [];
+    
+    if (serverName) {
+      // Refresh single server
+      const mcpTools = await this.mcpManager.connectServer(serverName);
+      const tools = this.convertMcpToolsToITools(mcpTools, serverName);
+      
+      // Re-register tools
+      tools.forEach(tool => this.registerTool(tool));
+      
+      return tools;
+    } else {
+      // Refresh all servers
+      const allTools: ITool[] = [];
+      for (const name of this.mcpManager.listServers()) {
+        try {
+          const mcpTools = await this.mcpManager.connectServer(name);
+          const tools = this.convertMcpToolsToITools(mcpTools, name);
+          
+          // Re-register tools
+          tools.forEach(tool => this.registerTool(tool));
+          
+          allTools.push(...tools);
+        } catch (error) {
+          console.warn(`Failed to refresh MCP server '${name}':`, error);
+        }
+      }
+      return allTools;
+    }
+  }
+
+  // ============================================================================
+  // PRIVATE METHODS
+  // ============================================================================
+
+  /**
+   * Initialize MCP servers during construction
+   */
+  private async initializeMcpServers(servers: McpServerConfig[]): Promise<void> {
+    const results = await Promise.allSettled(
+      servers.map(async (serverConfig) => {
+        try {
+          await this.addMcpServer(serverConfig);
+          console.log(`✅ Connected to MCP server: ${serverConfig.name}`);
+        } catch (error) {
+          console.warn(`⚠️  Failed to connect to MCP server '${serverConfig.name}':`, error);
+          // Continue with other servers
+        }
+      })
+    );
+    
+    const successful = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+    
+    if (failed > 0) {
+      console.warn(`MCP initialization: ${successful} successful, ${failed} failed`);
+    }
+  }
+
+  /**
+   * Generate tool name with conflict resolution strategy
+   */
+  private generateToolName(toolName: string, serverName: string): string {
+    const config = this.fullConfig.agentConfig.mcp;
+    const strategy = config?.toolNamingStrategy || 'prefix';
+    
+    switch (strategy) {
+      case 'prefix':
+        const prefix = config?.toolNamePrefix || serverName;
+        return `${prefix}_${toolName}`;
+      
+      case 'suffix':
+        const suffix = config?.toolNameSuffix || serverName;
+        return `${toolName}_${suffix}`;
+      
+      case 'error':
+        // Check for conflicts and throw error
+        if (this.getTool(toolName)) {
+          throw new Error(`Tool name conflict: '${toolName}' already exists`);
+        }
+        return toolName;
+      
+      default:
+        return `${serverName}_${toolName}`;
+    }
+  }
+
+  /**
+   * Convert MCP tools to ITool implementations with wrapped names
+   */
+  private convertMcpToolsToITools(mcpTools: McpToolAdapter[], serverName: string): ITool[] {
+    return mcpTools.map(mcpTool => {
+      // McpToolAdapter already implements ITool, simply return it with modified properties
+      const originalName = mcpTool.name;
+      const wrappedName = this.generateToolName(originalName, serverName);
+      
+      // Modify the tool properties directly
+      Object.defineProperty(mcpTool, 'name', { value: wrappedName, configurable: true });
+      Object.defineProperty(mcpTool, 'description', { 
+        value: `[${serverName}] ${mcpTool.description}`, 
+        configurable: true 
+      });
+      
+      // Add metadata for tracking
+      (mcpTool as any).metadata = {
+        originalName,
+        serverName,
+        isMcpTool: true
+      };
+      
+      return mcpTool;
+    });
   }
 }

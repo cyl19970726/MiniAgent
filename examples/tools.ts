@@ -3,6 +3,15 @@
  * 
  * This module demonstrates how to create custom tools using the BaseTool framework.
  * Includes WeatherTool for getting weather data and SubTool for basic math operations.
+ * 
+ * COMPATIBILITY NOTE:
+ * ✅ Compatible with MiniAgent v0.1.7+ and new MCP SDK integration
+ * ✅ Works with StandardAgent and built-in MCP support
+ * ✅ Uses modern BaseTool implementation with DefaultToolResult
+ * ✅ No MCP-specific dependencies - these are pure native tools
+ * 
+ * These tools can be used both as native tools and alongside MCP tools
+ * in the same agent instance thanks to the unified tool interface.
  */
 
 import { BaseTool, Type, Schema } from '../src/index.js';
@@ -430,3 +439,42 @@ export function findCitiesByName(partialName: string): string[] {
     city.toLowerCase().includes(searchTerm)
   );
 }
+
+// ============================================================================
+// USAGE WITH MCP INTEGRATION
+// ============================================================================
+
+/**
+ * Example: Using these native tools alongside MCP tools in StandardAgent
+ * 
+ * ```typescript
+ * import { StandardAgent, GeminiChat } from '../src/index.js';
+ * import { WeatherTool, SubTool } from './tools.js';
+ * 
+ * const agent = new StandardAgent({
+ *   chat: new GeminiChat({ apiKey: 'your-key' }),
+ *   tools: [
+ *     new WeatherTool(),
+ *     new SubTool()
+ *   ],
+ *   // MCP servers are automatically integrated via StandardAgent's built-in MCP support
+ *   mcpServers: [
+ *     {
+ *       name: 'filesystem',
+ *       transport: 'stdio',
+ *       command: 'npx',
+ *       args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp']
+ *     }
+ *   ]
+ * });
+ * 
+ * // The agent now has access to both native tools (WeatherTool, SubTool) 
+ * // and MCP tools (filesystem operations) in a unified interface
+ * ```
+ * 
+ * Benefits of this approach:
+ * - Native tools have zero latency (no IPC overhead)
+ * - MCP tools provide access to external capabilities
+ * - Both types work identically from the LLM's perspective
+ * - Easy to migrate between native and MCP implementations
+ */

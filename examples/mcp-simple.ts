@@ -10,6 +10,7 @@
 
 import { SimpleMcpClient } from '../src/mcp-sdk/index.js';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 async function runSimpleMcpExample(): Promise<void> {
   console.log('🚀 Starting Simple MCP Example');
@@ -20,12 +21,13 @@ async function runSimpleMcpExample(): Promise<void> {
   try {
     // Connect to test server via stdio
     console.log('\n📡 Connecting to MCP test server...');
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    
     await client.connect({
       transport: 'stdio',
-      stdio: {
-        command: 'npx',
-        args: ['tsx', path.resolve(__dirname, 'utils/server.ts'), '--stdio']
-      }
+      command: 'npx',
+      args: ['tsx', path.resolve(__dirname, 'utils/server.ts'), '--stdio']
     });
     
     console.log('✅ Connected to MCP server');

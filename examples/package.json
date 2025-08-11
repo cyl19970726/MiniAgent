@@ -1,0 +1,28 @@
+{
+  "name": "@miniagent/examples",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Examples for MiniAgent framework",
+  "scripts": {
+    "basic": "tsx basicExample.ts",
+    "session": "tsx sessionManagerExample.ts",
+    "tools": "tsx tools.ts",
+    "comparison": "tsx providerComparison.ts",
+    "mcp:simple": "tsx mcp-simple.ts",
+    "mcp:agent": "tsx mcp-with-agent.ts",
+    "mcp:dynamic": "tsx mcp-agent-dynamic.ts",
+    "server:stdio": "tsx utils/server.ts --stdio",
+    "server:sse": "tsx utils/server.ts --sse"
+  },
+  "dependencies": {
+    "@continue-reasoning/mini-agent": "file:..",
+    "@modelcontextprotocol/sdk": "^1.0.6",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
