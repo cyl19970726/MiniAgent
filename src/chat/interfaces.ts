@@ -233,7 +233,6 @@ export interface IChatConfig {
   modelName: string;
   tokenLimit: number;
   systemPrompt?: string;
-  toolDeclarations?: ToolDeclaration[];
   initialHistory?: MessageItem[];
   parallelToolCalls?: boolean;
 }
@@ -255,6 +254,7 @@ export interface IChat<T> {
   sendMessageStream(
     messages: MessageItem[],
     promptId: string,
+    toolDeclarations?: ToolDeclaration[],
   ): Promise<AsyncGenerator<LLMResponse>>;
 
   /**

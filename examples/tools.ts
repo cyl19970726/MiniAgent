@@ -64,7 +64,7 @@ export class WeatherTool extends BaseTool<{ latitude: number; longitude: number 
     );
   }
 
-  validateToolParams(params: { latitude: number; longitude: number }): string | null {
+  override validateToolParams(params: { latitude: number; longitude: number }): string | null {
     const requiredError = this.validateRequiredParams(params, ['latitude', 'longitude']);
     if (requiredError) return requiredError;
 
@@ -86,7 +86,7 @@ export class WeatherTool extends BaseTool<{ latitude: number; longitude: number 
     return null;
   }
 
-  getDescription(params: { latitude: number; longitude: number }): string {
+  override getDescription(params: { latitude: number; longitude: number }): string {
     return `Get weather for coordinates (${params.latitude}, ${params.longitude})`;
   }
 
@@ -233,7 +233,7 @@ export class SubTool extends BaseTool<{ minuend: number; subtrahend: number }, S
     );
   }
 
-  validateToolParams(params: { minuend: number; subtrahend: number }): string | null {
+  override validateToolParams(params: { minuend: number; subtrahend: number }): string | null {
     const requiredError = this.validateRequiredParams(params, ['minuend', 'subtrahend']);
     if (requiredError) return requiredError;
 
@@ -251,7 +251,7 @@ export class SubTool extends BaseTool<{ minuend: number; subtrahend: number }, S
     return null;
   }
 
-  getDescription(params: { minuend: number; subtrahend: number }): string {
+  override getDescription(params: { minuend: number; subtrahend: number }): string {
     return `Subtract ${params.subtrahend} from ${params.minuend}`;
   }
 

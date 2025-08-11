@@ -12,6 +12,10 @@
 import { StandardAgent, AllConfig, configureLogger, LogLevel, McpServerConfig, AgentEventType } from '../src/index.js';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import * as dotenv from 'dotenv';
+import { LLMChunkTextDelta, LLMChunkTextDone } from '../src/interfaces.js';
+
+dotenv.config();
 
 // Configure logging
 configureLogger({ level: LogLevel.INFO });
@@ -23,11 +27,11 @@ async function runMcpAgentExample(): Promise<void> {
   const __dirname = path.dirname(__filename);
   
   try {
-    // Configure StandardAgent with built-in MCP support
-    const config: AllConfig & { chatProvider: 'gemini' } = {
-      chatProvider: 'gemini',
+    // Configure StandardAgent with built-in MCP support using OpenAI o1
+    const config: AllConfig & { chatProvider: 'openai' } = {
+      chatProvider: 'openai',
       agentConfig: {
-        model: 'gemini-1.5-flash',
+        model: 'o1',
         workingDirectory: process.cwd(),
         mcp: {
           enabled: true,
@@ -45,9 +49,9 @@ async function runMcpAgentExample(): Promise<void> {
         }
       },
       chatConfig: {
-        apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '',
-        modelName: 'gemini-1.5-flash',
-        tokenLimit: 1000000
+        apiKey: process.env.OPENAI_API_KEY || '',
+        modelName: 'o1',
+        tokenLimit: 128000
       },
       toolSchedulerConfig: {}
     };
@@ -74,7 +78,7 @@ async function runMcpAgentExample(): Promise<void> {
     
     // List discovered MCP tools
     console.log('\n🔧 Discovered MCP Tools:');
-    const mcpTools = agent.getMcpTools();
+    const mcpTools = agent.getToolList();
     mcpTools.forEach((tool, index) => {
       console.log(`  ${index + 1}. ${tool.name} - ${tool.description}`);
     });
@@ -85,27 +89,60 @@ async function runMcpAgentExample(): Promise<void> {
     
     // Test conversation using MCP tools
     const queries = [
-      'Please add the numbers 15 and 27 for me using the available tools.',
-      'Can you echo this message: "MCP integration with StandardAgent is working great!"',
-      'Search for "artificial intelligence" and limit results to 3 items.'
+      'hi,I am hhh',
     ];
     
     for (const query of queries) {
       console.log(`\n👤 User: ${query}`);
-      console.log('🤖 Assistant: ', { flush: true });
       
       // Process query and stream response
       const eventStream = agent.processWithSession(query, sessionId);
       
       for await (const event of eventStream) {
-        if (event.type === AgentEventType.ResponseChunkTextDelta) {
-          process.stdout.write((event.data as any)?.content || '');
-        } else if (event.type === AgentEventType.ToolExecutionStart) {
-          console.log(`\n🔧 Calling tool: ${(event.data as any)?.name || 'unknown'}`);
-        } else if (event.type === AgentEventType.ToolExecutionDone) {
-          console.log(`✅ Tool completed: ${(event.data as any)?.name || 'unknown'}`);
-        } else if (event.type === AgentEventType.ResponseComplete) {
-          console.log('\n');
+        switch (event.type) {
+          case AgentEventType.UserMessage:
+            console.log(`👤 [openai] User message:`, event.data);
+            break;
+          case AgentEventType.TurnComplete:
+            console.log(`🛞 [openai] Turn complete:`, event.data);
+            break;
+          case AgentEventType.ToolExecutionStart:
+            const toolStartData = event.data as any;
+            console.log(`\n🔧 [openai] Tool started: ${toolStartData.toolName}`);
+            console.log(`   Args: ${JSON.stringify(toolStartData.args)}`);
+            break;
+          case AgentEventType.ToolExecutionDone:
+            const toolDoneData = event.data as any;
+            const status = toolDoneData.error ? 'failed' : 'completed';
+            console.log(`🔧 [openai] Tool ${status}: ${toolDoneData.toolName}`);
+            if (toolDoneData.error) {
+              console.log(`   Error: ${toolDoneData.error}`);
+            } else if (toolDoneData.result) {
+              console.log(`   Result: ${toolDoneData.result}`);
+            }
+            break;
+          case AgentEventType.Error:
+            const errorData = event.data as any;
+            console.error(`❌  Error: ${errorData.message}`);
+            break;
+          // Handle LLM Response events
+          case AgentEventType.ResponseChunkTextDelta:
+            const deltaData = event.data as LLMChunkTextDelta;
+            console.log(`\n📝  Text Delta Event:`, deltaData.content.text_delta);
+            break;
+          case AgentEventType.ResponseChunkTextDone:
+            const textDoneData = event.data as LLMChunkTextDone;
+            console.log(`🤖  Complete Response: "${textDoneData.content.text}"`);
+            break;
+          case AgentEventType.ResponseComplete:
+            console.log(`✅  LLM Response complete`);
+            break;
+          case AgentEventType.ResponseFailed:
+            const failedData = event.data as any;
+            console.error(`❌  LLM Response failed:`, failedData);
+            break;
+          default:
+            break;
         }
       }
     }
@@ -153,8 +190,8 @@ async function runMcpAgentExample(): Promise<void> {
 }
 
 // Check for required API key
-if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) {
-  console.error('❌ Please set GEMINI_API_KEY or GOOGLE_AI_API_KEY environment variable');
+if (!process.env.OPENAI_API_KEY ) {
+  console.error('❌ Please set OPENAI_API_KEY environment variable');
   process.exit(1);
 }
 

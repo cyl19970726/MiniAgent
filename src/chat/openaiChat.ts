@@ -100,9 +100,10 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
   async sendMessageStream(
     messages: MessageItem[],
     promptId: string,
+    toolDeclarations?: ToolDeclaration[],
   ): Promise<AsyncGenerator<LLMResponse>> {
     // Return immediately with an AsyncGenerator that handles initialization internally
-    return this.createStreamingResponse(messages, promptId);
+    return this.createStreamingResponse(messages, promptId, toolDeclarations);
   }
 
   /**
@@ -115,6 +116,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
   private async *createStreamingResponse(
     messages: MessageItem[],
     promptId: string,
+    toolDeclarations?: ToolDeclaration[],
   ): AsyncGenerator<LLMResponse> {
     await this.sendPromise;
     
@@ -153,8 +155,8 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
     
       let tools:OpenAI.Responses.FunctionTool[] = [];
       // Add tools if we have tool declarations
-      if (this.chatConfig.toolDeclarations && this.chatConfig.toolDeclarations.length > 0) {
-        tools = this.chatConfig.toolDeclarations.map((tool: ToolDeclaration) => ({
+      if (toolDeclarations && toolDeclarations.length > 0) {
+        tools = toolDeclarations.map((tool: ToolDeclaration) => ({
           name: tool.name,
           description: tool.description,
           parameters: convertTypesToLowercase(tool.parameters) as Record<string, unknown>,
@@ -195,7 +197,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
 
 
       // Now stream the actual responses using event-based processing
-      yield* this.processResponseStreamInternal(streamResponse, messages, promptId);
+      yield* this.processResponseStreamInternal(streamResponse, messages, promptId, toolDeclarations);
       
       // Stream completed successfully
       completionResolve();
@@ -218,6 +220,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
     streamResponse: AsyncIterable<OpenAI.Responses.ResponseStreamEvent>,
     _inputMessages: MessageItem[],
     promptId: string,
+    toolDeclarations?: ToolDeclaration[],
   ): AsyncGenerator<LLMResponse> {
     const outputContent: MessageItem[] = [];
     let errorOccurred = false;
@@ -257,7 +260,7 @@ export class OpenAIChatResponse implements IChat<OpenaiMessageItem> {
             id: event.response.id,
             type: 'response.start',
             model: this.chatConfig.modelName,
-            tools: this.chatConfig.toolDeclarations,
+            tools: toolDeclarations,
           } as LLMStart;
 
         } else if (event.type == 'response.output_item.added'){

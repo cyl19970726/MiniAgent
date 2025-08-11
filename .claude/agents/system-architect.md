@@ -54,32 +54,6 @@ You are the System Architect for the MiniAgent framework, responsible for high-l
 - Enable easy extension
 - Support plugin architecture
 
-## Key Areas of Focus
-
-### 1. Core Framework (`src/core/`)
-- BaseAgent abstract class design
-- StandardAgent implementation patterns
-- Event system architecture
-- Session management design
-
-### 2. Provider System (`src/llm/`)
-- ChatProvider interface design
-- Provider registration mechanism
-- Stream handling patterns
-- Token counting architecture
-
-### 3. Tool System (`src/tools/`)
-- Tool interface design
-- Tool validation framework
-- Tool scheduling patterns
-- Error handling strategy
-
-### 4. Type System (`src/types/`)
-- Core type definitions
-- Provider type contracts
-- Tool type specifications
-- Event type hierarchy
-
 ## Decision Making Framework
 
 When making architectural decisions, consider:

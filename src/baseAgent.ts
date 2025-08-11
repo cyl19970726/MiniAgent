@@ -24,6 +24,7 @@ import {
   createAgentEventFromLLMResponse,
   ToolExecutionStartEvent,
   ToolExecutionDoneEvent,
+  ToolDeclaration,
 } from './interfaces';
 import { ILogger, LogLevel, createLogger } from './logger';
 
@@ -304,6 +305,10 @@ export abstract class BaseAgent implements IAgent {
       const promptId = this.generatePromptId();
       this.logger.debug(`Generated prompt ID: ${promptId}`, 'BaseAgent.processOneTurn()');
       
+      let toolDeclarations: ToolDeclaration[] = this.getToolList().map((tool: ITool) => (
+         tool.schema
+      ));
+      
       // Handle continuation turns (no new user message)
       let responseStream;
       if (chatMessages.length === 0) {
@@ -313,10 +318,10 @@ export abstract class BaseAgent implements IAgent {
           role: 'user',
           content: { type: 'text', text: 'continue execution', metadata: { sessionId, timestamp: Date.now(), turn: this.currentTurn } },
           turnIdx: this.currentTurn, // 🔑 NEW: Add turn tracking
-        }], promptId);
+        }], promptId, toolDeclarations);
       } else {
         // Normal turn with user messages - send all messages
-        responseStream = await this.chat.sendMessageStream(chatMessages, promptId);
+        responseStream = await this.chat.sendMessageStream(chatMessages, promptId, toolDeclarations);
       }
 
       // Process streaming response with non-blocking tool execution  

@@ -11,12 +11,22 @@ const server = new McpServer({
 });
 
 // Add basic tools for testing
-server.tool("add",
-  { a: z.number(), b: z.number() },
+server.registerTool("add",
+  { title: "Add two numbers", description: "Add two numbers", inputSchema: { a: z.number(), b: z.number() } },
   async ({ a, b }) => {
     console.error("[Server] Processing add tool request:", { a, b });
     return {
       content: [{ type: "text", text: String(a + b) }]
+    };
+  }
+);
+
+server.registerTool("sayHi",
+  { title: "Say hi to a person", description: "Say hi to a person", inputSchema: { name: z.string() } },
+  async ({ name }) => {
+    console.error("[Server] Processing sayHi tool request:", { name });
+    return {
+      content: [{ type: "text", text: `Hiiiiiiiiiiiiiiiiiiiiiiiiiiiii, ${name}!` }]
     };
   }
 );

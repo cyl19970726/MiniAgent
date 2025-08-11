@@ -13,7 +13,7 @@ import {
   AgentEvent,
   IAgentStatus,
   MessageItem,
-  McpServerConfig
+  McpServerConfig,
 } from "./interfaces";
 import { McpManager, McpToolAdapter } from './mcp-sdk/index.js';
 
@@ -193,7 +193,6 @@ export class StandardAgent extends BaseAgent implements IStandardAgent {
 
     let actualChatConfig: IChatConfig = {
       ...config.chatConfig,
-      toolDeclarations: tools.map(tool => tool.schema),
     };
     
     // Select chat implementation based on provider
@@ -270,9 +269,8 @@ export class StandardAgent extends BaseAgent implements IStandardAgent {
         abortSignal || new AbortController().signal
       );
     } else {
-      // Filter only user messages and convert to the format expected by BaseAgent
+      // convert to the format expected by BaseAgent
       const userMessages = userInput
-        .filter(item => item.role === 'user')
         .map(item => ({
           role: 'user' as const,
           content: item.content,
