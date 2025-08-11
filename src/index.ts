@@ -34,7 +34,6 @@ export type {
   // Tool interfaces
   ITool,
   ToolDeclaration,
-  ToolResult,
   FileDiff,
   ToolConfirmationPayload,
   ToolCallConfirmationDetails,
@@ -152,4 +151,24 @@ export {
 // Re-export essential types from @google/genai (our only external dependency)
 export { Type } from '@google/genai';
 export type { Schema } from '@google/genai';
+
+// ============================================================================
+// MCP INTEGRATION (OPTIONAL)
+// ============================================================================
+
+// MCP (Model Context Protocol) integration for external tool servers
+export { 
+  SimpleMcpClient, 
+  McpToolAdapter, 
+  createMcpTools,
+  McpManager 
+} from './mcp-sdk/index.js';
+
+export type { 
+  McpConfig, 
+  McpTool, 
+  McpToolResult, 
+  McpServerInfo,
+  McpServerConfig 
+} from './mcp-sdk/index.js';
 

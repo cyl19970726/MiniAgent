@@ -53,6 +53,32 @@ export {
   ITokenTracker,
 };
 
+// MCP-related types - inline to avoid import issues during compilation
+export interface McpServerConfig {
+  /** Unique name for the server */
+  name: string;
+  /** Transport configuration */
+  transport: 'stdio' | 'http' | 'sse';
+  /** Command for stdio transport */
+  command?: string;
+  /** Arguments for stdio transport */
+  args?: string[];
+  /** Environment variables for stdio transport */
+  env?: Record<string, string>;
+  /** Working directory for stdio transport */
+  cwd?: string;
+  /** URL for http/sse transport */
+  url?: string;
+  /** Headers for http/sse transport */
+  headers?: Record<string, string>;
+  /** Timeout in milliseconds */
+  timeout?: number;
+  /** Connect immediately after adding (default: true) */
+  autoConnect?: boolean;
+  /** Optional description */
+  description?: string;
+}
+
 // ============================================================================
 // TOOL INTERFACES - Platform agnostic
 // ============================================================================
@@ -91,14 +117,6 @@ export class DefaultToolResult<T = unknown> implements IToolResult {
   toHistoryStr(): string {
     return JSON.stringify(this.data);
   }
-}
-
-/**
- * Legacy tool result interface - maintained for backward compatibility
- * @deprecated Use IToolResult and DefaultToolResult instead
- */
-export interface ToolResult {
-  result: string; // success message or error message
 }
 
 /**
@@ -810,6 +828,22 @@ export interface IAgentConfig {
   logger?: ILogger;
   /** Log level for this agent */
   logLevel?: LogLevel;
+  /** MCP (Model Context Protocol) configuration */
+  mcp?: {
+    /** Whether MCP integration is enabled */
+    enabled: boolean;
+    /** List of MCP servers to connect to */
+    servers: McpServerConfig[];
+    /** Whether to auto-discover and register tools on startup */
+    autoDiscoverTools?: boolean;
+    /** Global connection timeout in milliseconds */
+    connectionTimeout?: number;
+    /** Tool naming strategy for conflicts */
+    toolNamingStrategy?: 'prefix' | 'suffix' | 'error';
+    /** Prefix/suffix for tool names when conflicts occur */
+    toolNamePrefix?: string;
+    toolNameSuffix?: string;
+  };
 }
 
 /**
@@ -1060,6 +1094,16 @@ export interface IStandardAgent extends IAgent {
   
   // Session-aware status
   getSessionStatus(sessionId?: string): IAgentStatus & { sessionInfo?: AgentSession | undefined };
+
+  // MCP Server Management
+  addMcpServer(config: McpServerConfig): Promise<ITool[]>;
+  removeMcpServer(name: string): Promise<boolean>;
+  listMcpServers(): string[];
+  getMcpServerStatus(name: string): { connected: boolean; toolCount: number } | null;
+  
+  // MCP Tool Management
+  getMcpTools(serverName?: string): ITool[];
+  refreshMcpTools(serverName?: string): Promise<ITool[]>;
 }
 
 // ============================================================================

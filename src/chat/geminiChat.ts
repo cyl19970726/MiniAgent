@@ -129,7 +129,7 @@ export class GeminiChat implements IChat<GeminiMessage> {
    * 
    * We create a new instance each time to ensure history synchronization
    */
-  private createChatInstance(): any {
+  private createChatInstance(toolDeclarations?: ToolDeclaration[]): any {
     const geminiHistory = this.convertHistoryToGemini(this.history);
     
     const config: any = {
@@ -142,10 +142,10 @@ export class GeminiChat implements IChat<GeminiMessage> {
       config.systemInstruction = this.chatConfig.systemPrompt;
     }
 
-    // Add tools if available
-    if (this.chatConfig.toolDeclarations && this.chatConfig.toolDeclarations.length > 0) {
+     // Add tools if available
+     if (toolDeclarations && toolDeclarations.length > 0) {
       config.tools = [{
-        functionDeclarations: this.chatConfig.toolDeclarations.map((tool: ToolDeclaration) => ({
+        functionDeclarations: toolDeclarations.map((tool: ToolDeclaration) => ({
           name: tool.name,
           description: tool.description,
           parameters: tool.parameters ? convertTypesToLowercase(tool.parameters) : undefined,
@@ -175,8 +175,9 @@ export class GeminiChat implements IChat<GeminiMessage> {
   async sendMessageStream(
     messages: MessageItem[],
     promptId: string,
+    toolDeclarations?: ToolDeclaration[],
   ): Promise<AsyncGenerator<LLMResponse>> {
-    return this.createStreamingResponse(messages, promptId);
+    return this.createStreamingResponse(messages, promptId, toolDeclarations);
   }
 
   /**
@@ -187,6 +188,7 @@ export class GeminiChat implements IChat<GeminiMessage> {
   private async *createStreamingResponse(
     messages: MessageItem[],
     promptId: string,
+    toolDeclarations?: ToolDeclaration[],
   ): AsyncGenerator<LLMResponse> {
     await this.sendPromise;
     
@@ -203,14 +205,14 @@ export class GeminiChat implements IChat<GeminiMessage> {
 
     try {
       // 1. Create chat instance with current history
-      const chat = this.createChatInstance();
+      const chat = this.createChatInstance(toolDeclarations);
       
       // 2. Send LLMStart event
       yield {
         id: promptId,
         type: 'response.start',
         model: this.chatConfig.modelName,
-        tools: this.chatConfig.toolDeclarations,
+        tools: toolDeclarations,
       } as LLMStart;
 
       // 3. Convert messages to Gemini format and start streaming
