@@ -818,6 +818,8 @@ export interface IAgentConfig {
   apiKey?: string;
   /** Default session identifier */
   sessionId?: string;
+  /** System prompt for the agent */
+  systemPrompt?: string;
   /** Maximum number of history records to keep */
   maxHistorySize?: number;
   /** Maximum number of tokens to include in history */
@@ -902,6 +904,18 @@ export interface IAgent {
   ): AsyncGenerator<AgentEvent>;
 
   /**
+   * Process a single turn without history management.
+   * Used for stateless subagent execution.
+   * @param messages - The messages to process (typically just the user's task)
+   * @param signal - Abort signal for cancellation
+   * @returns AsyncGenerator that yields AgentEvent objects
+   */
+  processOneTurn(
+    messages: Array<{ role: string; content: string }>,
+    signal: AbortSignal
+  ): AsyncGenerator<AgentEvent>;
+
+  /**
    * Process one turn of conversation
    * @param sessionId - Unique identifier for this conversation session
    * @param chatMessages - Array of chat messages to process
@@ -979,6 +993,24 @@ export interface IAgent {
    * @param id Handler ID
    */
   offEvent(id: string): void;
+}
+
+export interface TaskRequest{
+  name: string;
+  description: string;
+}
+
+export interface TaskResponse{
+  result: string;
+}
+
+export interface ITaskAgent extends IAgent{
+
+  
+  // here has a issue: Do we need to handle the internal event streaming of this subagent.
+  // now we assume that we don't do that.
+  createTask(task: TaskRequest): Promise<TaskResponse>;
+  // 1. init a subagent from subagent resigtry
 }
 
 // ============================================================================
@@ -1174,4 +1206,47 @@ export function isTool(obj: unknown): obj is ITool {
     'shouldConfirmExecute' in obj &&
     'execute' in obj
   );
+}
+
+// ============================================================================
+// SUBAGENT INTERFACES
+// ============================================================================
+
+/**
+ * SubAgent task definition - defines a task that can be delegated to a subagent
+ */
+export interface SubAgentTask {
+  /** Task name/identifier */
+  name: string;
+  /** Detailed task description */
+  description: string;
+}
+
+/**
+ * SubAgent execution result
+ */
+export interface SubAgentResult {
+  /** The result content/output from the subagent */
+  result: string;
+  /** Whether the task completed successfully */
+  success: boolean;
+  /** Error message if task failed */
+  error?: string;
+}
+
+/**
+ * SubAgent configuration definition
+ * Used to register and configure specialized agents for delegation
+ */
+export interface SubAgentConfig {
+  /** Unique name identifier for the subagent */
+  name: string;
+  /** Brief description of what the subagent does */
+  description: string;
+  /** System prompt that defines the subagent's behavior */
+  systemPrompt: string;
+  /** Tool names this subagent has access to, or '*' for all tools */
+  tools?: string[] | '*';
+  /** Guidance on when to use this subagent */
+  whenToUse: string;
 }

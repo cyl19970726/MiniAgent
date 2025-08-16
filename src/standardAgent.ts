@@ -16,6 +16,7 @@ import {
   McpServerConfig,
 } from "./interfaces";
 import { McpManager, McpToolAdapter } from './mcp-sdk/index.js';
+import { SubAgentRegistry } from './subagent/registry.js';
 
 /**
  * Internal session manager implementation
@@ -189,6 +190,7 @@ export class StandardAgent extends BaseAgent implements IStandardAgent {
   constructor(
     public tools: ITool[],
     config: AllConfig & { chatProvider?: 'gemini' | 'openai' },
+    registry?: SubAgentRegistry
   ) {
 
     let actualChatConfig: IChatConfig = {
@@ -213,7 +215,7 @@ export class StandardAgent extends BaseAgent implements IStandardAgent {
       ...config.toolSchedulerConfig,
       tools: tools,
     });
-    super(config.agentConfig, chat, toolScheduler);
+    super(config.agentConfig, chat, toolScheduler, registry);
 
     // Store config for later use
     this.fullConfig = config;
@@ -539,6 +541,15 @@ export class StandardAgent extends BaseAgent implements IStandardAgent {
       default:
         return `${serverName}_${toolName}`;
     }
+  }
+
+  /**
+   * Register SubAgent registry dynamically after construction
+   * Convenience method for adding subagent support to existing agents
+   */
+  override async registerSubAgents(registry: SubAgentRegistry): Promise<void> {
+    // Delegate to BaseAgent implementation
+    await super.registerSubAgents(registry);
   }
 
   /**
