@@ -739,4 +739,36 @@ export class TestHelpers {
       setTimeout(() => reject(new Error(message)), ms);
     });
   }
+
+  /**
+   * Create a mock event generator for testing
+   */
+  static async* createMockEventGenerator(events: AgentEvent[]): AsyncGenerator<AgentEvent> {
+    for (const event of events) {
+      yield event;
+    }
+  }
+}
+
+// =============================================================================
+// ADDITIONAL FACTORY METHODS
+// =============================================================================
+
+/**
+ * Extended TestDataFactory with additional helper methods
+ */
+export class TestDataFactoryExtension {
+  /**
+   * Create a simple message for testing
+   */
+  static createMessage(content: string, role: 'user' | 'assistant' = 'user'): MessageItem {
+    return TestDataFactory.createUserMessage(content);
+  }
+
+  /**
+   * Create a tool result for testing
+   */
+  static createToolResult<T = any>(data: T): DefaultToolResult<T> {
+    return new DefaultToolResult(data);
+  }
 }

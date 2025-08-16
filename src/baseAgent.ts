@@ -26,6 +26,7 @@ import {
   ToolExecutionDoneEvent,
   ToolDeclaration,
 } from './interfaces';
+import { SubAgentRegistry } from './subagent/registry.js';
 import { ILogger, LogLevel, createLogger } from './logger';
 
 /**
@@ -82,6 +83,9 @@ export abstract class BaseAgent implements IAgent {
   
   /** Logger instance for this agent */
   protected logger: ILogger;
+  
+  /** Optional SubAgent registry for task delegation */
+  protected registry: SubAgentRegistry | undefined;
 
   /**
    * Constructor for BaseAgent
@@ -89,19 +93,31 @@ export abstract class BaseAgent implements IAgent {
    * @param config - Agent configuration including model, working directory, etc.
    * @param chat - Chat instance for conversation management
    * @param toolScheduler - Tool scheduler for executing tool calls
+   * @param registry - Optional SubAgent registry for task delegation support
    */
   constructor(
     protected agentConfig: IAgentConfig,
     protected chat: IChat<any>,
     protected toolScheduler: IToolScheduler,
+    registry?: SubAgentRegistry
   ) {
     // Initialize logger
     this.logger = agentConfig.logger || createLogger('BaseAgent', {
       level: agentConfig.logLevel || LogLevel.INFO,
     });
     
+    // Store registry if provided
+    this.registry = registry;
+    
     this.logger.debug('BaseAgent initialized', 'BaseAgent.constructor()');
     this.setupEventHandlers();
+    
+    // Initialize SubAgent support if registry provided (don't await to avoid blocking constructor)
+    if (this.registry) {
+      this.initializeSubAgentSupport().catch(error => {
+        this.logger.error(`Failed to initialize SubAgent support: ${error}`, 'BaseAgent.constructor()');
+      });
+    }
   }
 
   registerTool(tool: ITool): void {
@@ -281,19 +297,32 @@ export abstract class BaseAgent implements IAgent {
   }
 
   /**
-   * Process one turn of conversation
-   * 
-   * This method processes a single turn of conversation, handling:
-   * - LLM response generation (streaming)
-   * - Tool call extraction and execution
-   * - Event emission
-   * 
-   * @param sessionId - Unique identifier for this conversation session
-   * @param chatMessages - Array of chat messages to process
-   * @param abortSignal - Signal to abort the processing if needed
-   * @returns AsyncGenerator that yields AgentEvent objects
+   * Process one turn of conversation (overloaded implementation)
    */
   async *processOneTurn(
+    sessionIdOrMessages: string | Array<{ role: string; content: string }>,
+    chatMessagesOrSignal?: MessageItem[] | AbortSignal,
+    abortSignal?: AbortSignal,
+  ): AsyncGenerator<AgentEvent> {
+    // Handle overloaded method signatures
+    if (typeof sessionIdOrMessages === 'string') {
+      // Original signature: processOneTurn(sessionId, chatMessages, abortSignal)
+      const sessionId = sessionIdOrMessages;
+      const chatMessages = chatMessagesOrSignal as MessageItem[];
+      const signal = abortSignal!;
+      yield* this.processOneTurnWithHistory(sessionId, chatMessages, signal);
+    } else {
+      // New signature: processOneTurn(messages, signal)
+      const messages = sessionIdOrMessages;
+      const signal = chatMessagesOrSignal as AbortSignal;
+      yield* this.processOneTurnStateless(messages, signal);
+    }
+  }
+
+  /**
+   * Process one turn with conversation history (original implementation)
+   */
+  private async *processOneTurnWithHistory(
     sessionId: string,
     chatMessages: MessageItem[],
     abortSignal: AbortSignal,
@@ -488,6 +517,154 @@ export abstract class BaseAgent implements IAgent {
     }
   }
 
+  /**
+   * Process one turn without history management (stateless subagent execution)
+   */
+  private async *processOneTurnStateless(
+    messages: Array<{ role: string; content: string }>,
+    signal: AbortSignal
+  ): AsyncGenerator<AgentEvent> {
+    // Use a unique session ID for this stateless execution
+    const tempSessionId = `temp-${Date.now()}-${Math.random()}`;
+    
+    this.logger.debug(`Starting stateless turn for subagent`, 'BaseAgent.processOneTurnStateless()');
+    
+    try {
+      const promptId = this.generatePromptId();
+      this.logger.debug(`Generated prompt ID: ${promptId}`, 'BaseAgent.processOneTurnStateless()');
+      
+      // Convert simple messages to chat format
+      const chatMessages: MessageItem[] = messages.map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: {
+          type: 'text',
+          text: msg.content
+        } as ContentPart,
+        turnIdx: 1, // Single turn for stateless execution
+        metadata: {
+          sessionId: tempSessionId,
+          timestamp: Date.now(),
+          turn: 1,
+        },
+      }));
+      
+      // Get tool declarations
+      let toolDeclarations: ToolDeclaration[] = this.getToolList().map((tool: ITool) => (
+        tool.schema
+      ));
+      
+      // Get streaming response from chat
+      const responseStream = await this.chat.sendMessageStream(chatMessages, promptId, toolDeclarations);
+
+      // Process streaming response with tool execution
+      const pendingToolCalls = new Set<string>(); // Track pending tool calls by callId
+      let toolExecutionEvents: AgentEvent[] = []; // Buffer for tool execution events
+      let toolsExecutedInThisTurn = 0; // Count tools executed in this turn
+      
+      // Create tool execution callbacks
+      const createToolCallbacks = () => ({
+        onExecutionStart: (toolCall: IToolCallRequestInfo) => {
+          const startEvent = this.createEvent(AgentEventType.ToolExecutionStart, {
+            toolName: toolCall.name,
+            callId: toolCall.callId,
+            args: toolCall.args,
+            sessionId: tempSessionId,
+            turn: 1,
+          }) as ToolExecutionStartEvent;
+          toolExecutionEvents.push(startEvent);
+        },
+        
+        onExecutionDone: (request: IToolCallRequestInfo, response: IToolCallResponseInfo, duration?: number) => {
+          const doneEvent = this.createEvent(AgentEventType.ToolExecutionDone, {
+            toolName: request.name,
+            callId: request.callId,
+            result: response.result,
+            error: response.error?.message,
+            duration,
+            sessionId: tempSessionId,
+            turn: 1,
+          }) as ToolExecutionDoneEvent;
+          toolExecutionEvents.push(doneEvent);
+          toolsExecutedInThisTurn++; // Increment counter
+          
+          pendingToolCalls.delete(request.callId); // Mark as completed
+        },
+      });
+      
+      // Process the stream
+      for await (const llmResponse of responseStream) {
+        if (signal.aborted) break;
+
+        // Forward LLM events directly as Agent events
+        yield createAgentEventFromLLMResponse(llmResponse, tempSessionId, 1);
+
+        // Handle different response types
+        if (llmResponse.type === 'response.chunk.text.done') {
+          // For stateless execution, we don't add to chat history
+          this.logger.debug(`Assistant text response completed`, 'BaseAgent.processOneTurnStateless()');
+          
+        } else if (llmResponse.type === 'response.chunk.thinking.done') {
+          // For stateless execution, we don't add to chat history
+          this.logger.debug(`Assistant thinking response completed`, 'BaseAgent.processOneTurnStateless()');
+          
+        } else if (llmResponse.type === 'response.chunk.function_call.done' && llmResponse.content.functionCall) {
+          const toolCall: IToolCallRequestInfo = {
+            callId: llmResponse.content.functionCall.call_id,
+            ...(llmResponse.content.functionCall.id && { functionId: llmResponse.content.functionCall.id }),
+            name: llmResponse.content.functionCall.name,
+            args: JSON.parse(llmResponse.content.functionCall.args || '{}'),
+            isClientInitiated: false,
+            promptId: promptId,
+          };
+
+          this.logger.info(`Scheduling tool execution: ${toolCall.name}`, 'BaseAgent.processOneTurnStateless()');
+          
+          // Add to pending set
+          pendingToolCalls.add(toolCall.callId);
+          
+          // Schedule tool execution asynchronously
+          this.toolScheduler.schedule([toolCall], signal, createToolCallbacks()).catch(error => {
+            this.logger.error(`Tool scheduling failed: ${error}`, 'BaseAgent.processOneTurnStateless()');
+            pendingToolCalls.delete(toolCall.callId); // Clean up on error
+          });
+        }
+      }
+      
+      // Wait for all pending tools to complete before finishing turn
+      this.logger.debug(`Waiting for ${pendingToolCalls.size} pending tools to complete`, 'BaseAgent.processOneTurnStateless()');
+      while (pendingToolCalls.size > 0 && !signal.aborted) {
+        // Emit any buffered tool execution events
+        while (toolExecutionEvents.length > 0) {
+          yield toolExecutionEvents.shift()!;
+        }
+        
+        // Small delay to avoid busy waiting
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      
+      // Emit any remaining tool execution events
+      while (toolExecutionEvents.length > 0) {
+        yield toolExecutionEvents.shift()!;
+      }
+
+      // Emit completion event
+      const hasExecutedTools = toolsExecutedInThisTurn > 0;
+      
+      this.logger.debug(`Stateless turn completed with ${toolsExecutedInThisTurn} tools executed`, 'BaseAgent.processOneTurnStateless()');
+      yield this.createEvent(AgentEventType.TurnComplete, {
+        type: 'turn_complete',
+        sessionId: tempSessionId,
+        turn: 1,
+        hasToolCalls: hasExecutedTools,
+      });
+
+    } catch (error) {
+      this.logger.error(`Error in stateless turn: ${error instanceof Error ? error.message : String(error)}`, 'BaseAgent.processOneTurnStateless()');
+      yield this.createErrorEvent(error instanceof Error ? error.message : String(error));
+      throw error; // Re-throw for caller to handle
+    }
+  }
+
 
 
 
@@ -646,5 +823,86 @@ export abstract class BaseAgent implements IAgent {
     return `prompt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  /**
+   * Initialize SubAgent support if registry is provided
+   * Creates and registers the TaskTool and updates system prompt
+   */
+  private async initializeSubAgentSupport(): Promise<void> {
+    if (this.registry) {
+      // Dynamically import TaskTool to avoid circular dependency
+      const { TaskTool } = await import('./subagent/taskTool.js');
+      
+      // Create TaskTool with factory functions
+      const taskTool = new TaskTool(
+        this.registry,
+        this.agentConfig,
+        // Factory function to create chat instances
+        (config: any) => this.createChatInstance(config),
+        // Factory function to create scheduler instances
+        (config: any) => this.createSchedulerInstance(config)
+      );
+      
+      // Register TaskTool with the scheduler
+      this.toolScheduler.registerTool(taskTool);
+      
+      // Update system prompt with subagent information
+      const enhancedPrompt = this.buildSystemPromptWithSubagents();
+      if (enhancedPrompt) {
+        this.chat.setSystemPrompt(enhancedPrompt);
+      }
+      
+      this.logger.debug('SubAgent support initialized with TaskTool registered', 'BaseAgent.initializeSubAgentSupport()');
+    }
+  }
+
+  /**
+   * Create a new chat instance for subagents
+   * This method needs to be implemented by concrete subclasses or
+   * will use reflection to create the same type of chat instance
+   */
+  protected createChatInstance(config: any): IChat<any> {
+    // Try to use the constructor of the current chat instance
+    const ChatConstructor = this.chat.constructor as new (config: any) => IChat<any>;
+    return new ChatConstructor(config);
+  }
+
+  /**
+   * Create a new scheduler instance for subagents
+   */
+  protected async createSchedulerInstance(config: any): Promise<IToolScheduler> {
+    // Import CoreToolScheduler here to avoid circular dependency
+    const { CoreToolScheduler } = await import('./coreToolScheduler.js');
+    return new CoreToolScheduler(config);
+  }
+
+  /**
+   * Build system prompt with subagent information
+   */
+  private buildSystemPromptWithSubagents(): string | null {
+    if (!this.registry) {
+      return null;
+    }
+    
+    const basePrompt = this.agentConfig.systemPrompt || this.chat.getSystemPrompt() || '';
+    const subagentInfo = this.registry.generateSystemPromptSnippet();
+    
+    if (subagentInfo) {
+      return `${basePrompt}\n\n${subagentInfo}`;
+    }
+    
+    return basePrompt || null;
+  }
+
+  /**
+   * Register subagents dynamically after construction
+   */
+  async registerSubAgents(registry: SubAgentRegistry): Promise<void> {
+    if (!this.registry) {
+      this.registry = registry;
+      await this.initializeSubAgentSupport();
+    } else {
+      this.logger.warn('SubAgent registry already initialized, ignoring new registry', 'BaseAgent.registerSubAgents()');
+    }
+  }
 
 }

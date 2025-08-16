@@ -64,6 +64,9 @@ export type {
   
   // Event types
   AgentEvent,
+  
+  // Tool results
+  DefaultToolResult,
 } from './interfaces.js';
 
 // ============================================================================
@@ -171,4 +174,17 @@ export type {
   McpServerInfo,
   McpServerConfig 
 } from './mcp-sdk/index.js';
+
+// ============================================================================
+// SUBAGENT SYSTEM
+// ============================================================================
+
+// SubAgent implementations and types
+export {
+  SubAgentRegistry,
+  TaskTool,
+  type SubAgentTask,
+  type SubAgentResult,
+  type SubAgentConfig
+} from './subagent/index.js';
 
