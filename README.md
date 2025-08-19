@@ -33,7 +33,7 @@ pnpm install @continue-reasoning/mini-agent
 - [x] **Output Streaming** - Real-time tool output updates during execution
 
 ### External Integrations
-- [ ] **MCP Support** - Model Context Protocol integration (in development)
+- [x] **MCP Support** - Model Context Protocol integration (in development)
 - [ ] **Plugin System** - External tool discovery and loading
 
 ## Key Design Principles
@@ -243,75 +243,177 @@ MiniAgent provides a comprehensive event system with 20+ event types for real-ti
 | **LLM Response Events** |
 | `ResponseChunkTextDelta` | Real-time text streaming | `{ content: { text_delta: string } }` |
 | `ResponseChunkTextDone` | Text complete | `{ content: { text: string } }` |
-| `ResponseChunkThinkingDelta` | Thinking process | `{ content: { thinking_delta: string } }` |
+| `ResponseChunkThinkingDelta` | Thinking process streaming | `{ content: { thinking_delta: string } }` |
+| `ResponseChunkThinkingDone` | Thinking process complete | `{ content: { thinking: string } }` |
+| `ResponseChunkFunctionCallDelta` | Function call parameters streaming | `{ content: { functionCall: { name: string, args: string } } }` |
+| `ResponseChunkFunctionCallDone` | Function call parameters complete | `{ content: { functionCall: { id: string, call_id: string, name: string, args: string } } }` |
 | `ResponseComplete` | Response finished | `{ response_id: string, usage: TokenUsage }` |
 | **Tool Execution Events** |
-| `ToolExecutionStart` | Tool begins execution | `{ toolName: string, callId: string, args: any }` |
-| `ToolExecutionDone` | Tool completes | `{ toolName: string, result?: any, error?: string }` |
+| `ToolExecutionStart` | Tool begins execution | `{ toolName: string, callId: string, args: Record<string, unknown>, sessionId: string, turn: number }` |
+| `ToolExecutionDone` | Tool completes | `{ toolName: string, callId: string, result?: unknown, error?: string, duration?: number, sessionId: string, turn: number }` |
 | **Session Events** |
-| `UserMessage` | User input processed | `{ content: string, sessionId: string, turn: number }` |
-| `TurnComplete` | Conversation turn done | `{ sessionId: string, turn: number, hasToolCalls: boolean }` |
+| `UserMessage` | User input processed | `{ type: string, content: string, sessionId: string, turn: number, metadata?: any }` |
+| `TurnComplete` | Conversation turn done | `{ type: string, sessionId: string, turn: number, hasToolCalls: boolean }` |
 | **Error Events** |
-| `Error` | General errors | `{ message: string, timestamp: number }` |
-| `ResponseFailed` | LLM response failed | `{ response_id: string, error: ErrorDetails }` |
+| `Error` | General errors | `{ message: string, timestamp: number, turn: number }` |
+| `ResponseFailed` | LLM response failed | `{ response_id: string, error: { code?: string, message?: string } }` |
+| `ResponseIncomplete` | Response not complete | `{ response_id: string, incomplete_details: { reason: string } }` |
 
 ### Event Handling Best Practices
 
-1. **Handle streaming events** - Use `ResponseChunkTextDelta` for real-time UI updates
-2. **Monitor tool execution** - Track tool progress with `ToolExecutionStart/Done` events
-3. **Use AbortController** - Implement timeout and cancellation control
-4. **Error handling** - Listen for `Error` and `ResponseFailed` events
-5. **Token monitoring** - Track usage with `ResponseComplete` event data
+1. **Choose between Delta and Done events** - Don't handle both `*Delta` and `*Done` events for the same content type
+   - **Delta events** (`ResponseChunkTextDelta`, `ResponseChunkThinkingDelta`, `ResponseChunkFunctionCallDelta`) - Use only when real-time streaming UX is critical
+   - **Done events** (`ResponseChunkTextDone`, `ResponseChunkThinkingDone`, `ResponseChunkFunctionCallDone`) - **Recommended for most cases** - contains complete content
+   - Done events contain the full aggregated content from all corresponding delta events
 
-### Complete Event Flow Example
+2. **Recommended event handling pattern**:
+   ```typescript
+   // ✅ Good - Handle complete content
+   case AgentEventType.ResponseChunkTextDone:
+     console.log('Complete response:', event.data.content.text);
+     break;
+   
+   // ❌ Avoid - Don't handle both delta and done
+   case AgentEventType.ResponseChunkTextDelta:
+     // Only use when real-time streaming is essential
+   case AgentEventType.ResponseChunkTextDone:
+     // Don't handle both - creates duplicate content
+   ```
+
+3. **Tool execution monitoring** - **Recommended**: Use `ToolExecutionStart/Done` events for tool tracking
+   - `ToolExecutionStart/Done` - **Best practice** - High-level tool execution lifecycle
+   - `ResponseChunkFunctionCallDelta/Done` - **Only when needed** - Low-level function call parameter streaming
+   - Function call events show LLM preparing tool calls, execution events show actual tool running
+
+4. **Use AbortController** - Implement timeout and cancellation control  
+5. **Error handling** - Listen for `Error` and `ResponseFailed` events
+6. **Token monitoring** - Track usage with `ResponseComplete` event data
+
+### Complete Event Flow Examples
+
+#### Recommended Pattern (Using Done Events)
 
 ```typescript
-// Set up proper error handling and timeouts
-const abortController = new AbortController();
-setTimeout(() => abortController.abort(), 30000); // 30 second timeout
+import { AgentEventType } from '@continue-reasoning/mini-agent';
 
-let assistantResponse = '';
+// ✅ Recommended - Handle complete content with Done events
+const abortController = new AbortController();
+setTimeout(() => abortController.abort(), 30000);
 
 try {
   for await (const event of agent.processWithSession(userInput, sessionId, abortController.signal)) {
     switch (event.type) {
       case AgentEventType.UserMessage:
-        console.log('👤 Processing user input...');
-        break;
-        
-      case AgentEventType.ResponseChunkTextDelta:
-        // Real-time text streaming
-        const delta = event.data.content.text_delta;
-        process.stdout.write(delta);
-        assistantResponse += delta;
+        // ✅ Type-safe access to user message data
+        const userMsgData = event.data as { 
+          content: string; 
+          sessionId: string; 
+          turn: number; 
+          type: string; 
+        };
+        console.log(`👤 Processing user input (Turn ${userMsgData.turn}): ${userMsgData.content}`);
         break;
         
       case AgentEventType.ResponseChunkTextDone:
-        console.log('\n✅ Text response complete');
+        // ✅ Get complete text content - recommended approach
+        const textData = event.data as { content: { text: string } };
+        console.log('🤖 Assistant:', textData.content.text);
+        break;
+        
+      case AgentEventType.ResponseChunkThinkingDone:
+        // ✅ Get complete thinking process if needed
+        const thinkingData = event.data as { content: { thinking: string } };
+        console.log('🧠 Reasoning:', thinkingData.content.thinking);
+        break;
+        
+      case AgentEventType.ResponseChunkFunctionCallDone:
+        // ✅ Get complete function call parameters - useful for debugging
+        const funcCallData = event.data as { 
+          content: { 
+            functionCall: { 
+              id: string; 
+              call_id: string; 
+              name: string; 
+              args: string; 
+            } 
+          } 
+        };
+        const funcCall = funcCallData.content.functionCall;
+        console.log(`🔧 LLM prepared tool: ${funcCall.name} with args: ${funcCall.args}`);
         break;
         
       case AgentEventType.ToolExecutionStart:
-        console.log(`🔧 Executing tool: ${event.data.toolName}`);
+        // ✅ Recommended - Track actual tool execution with full context
+        const toolStartData = event.data as {
+          toolName: string;
+          callId: string;
+          args: Record<string, unknown>;
+          sessionId: string;
+          turn: number;
+        };
+        console.log(`⚙️ Tool executing: ${toolStartData.toolName} (Turn ${toolStartData.turn})`);
+        console.log(`   Args:`, toolStartData.args);
         break;
         
       case AgentEventType.ToolExecutionDone:
-        if (event.data.error) {
-          console.log(`❌ Tool failed: ${event.data.toolName}`);
+        // ✅ Recommended - Track tool completion with full context
+        const toolDoneData = event.data as {
+          toolName: string;
+          callId: string;
+          result?: unknown;
+          error?: string;
+          duration?: number;
+          sessionId: string;
+          turn: number;
+        };
+        if (toolDoneData.error) {
+          console.log(`❌ Tool failed: ${toolDoneData.toolName} - ${toolDoneData.error}`);
         } else {
-          console.log(`✅ Tool completed: ${event.data.toolName}`);
+          console.log(`✅ Tool completed: ${toolDoneData.toolName} (${toolDoneData.duration}ms)`);
         }
         break;
         
       case AgentEventType.ResponseComplete:
-        console.log(`📊 Tokens used: ${event.data.usage?.totalTokens || 0}`);
+        // ✅ Access complete response with token usage
+        const completeData = event.data as { 
+          response_id: string; 
+          usage?: { 
+            inputTokens: number; 
+            outputTokens: number; 
+            totalTokens: number; 
+          } 
+        };
+        console.log(`📊 Response complete - Tokens: ${completeData.usage?.totalTokens || 0}`);
         break;
         
       case AgentEventType.TurnComplete:
-        console.log('🔄 Conversation turn completed');
+        // ✅ Turn completion with context
+        const turnData = event.data as { 
+          type: string; 
+          sessionId: string; 
+          turn: number; 
+          hasToolCalls: boolean; 
+        };
+        console.log(`🔄 Turn ${turnData.turn} completed ${turnData.hasToolCalls ? 'with' : 'without'} tool calls`);
         break;
         
       case AgentEventType.Error:
-        console.error('❌ Error:', event.data.message);
+        // ✅ Structured error handling
+        const errorData = event.data as { 
+          message: string; 
+          timestamp: number; 
+          turn: number; 
+        };
+        console.error(`❌ Error (Turn ${errorData.turn}): ${errorData.message}`);
+        break;
+        
+      case AgentEventType.ResponseFailed:
+        // ✅ Handle response failures
+        const failedData = event.data as { 
+          response_id: string; 
+          error: { code?: string; message?: string }; 
+        };
+        console.error(`❌ Response failed: ${failedData.error.message || 'Unknown error'}`);
         break;
     }
   }
@@ -320,6 +422,88 @@ try {
     console.log('⏰ Operation timed out');
   } else {
     console.error('💥 Unexpected error:', error);
+  }
+}
+```
+
+#### Real-Time Streaming Pattern (When UX is Critical)
+
+```typescript
+import { AgentEventType } from '@continue-reasoning/mini-agent';
+
+// 🎯 Only use when real-time streaming UX is essential
+let assistantResponse = '';
+
+for await (const event of agent.processWithSession(userInput)) {
+  switch (event.type) {
+    case AgentEventType.ResponseChunkTextDelta:
+      // ⚡ Real-time character-by-character streaming
+      const deltaData = event.data as { content: { text_delta: string } };
+      const delta = deltaData.content.text_delta;
+      process.stdout.write(delta);
+      assistantResponse += delta;
+      break;
+      
+    case AgentEventType.ResponseChunkFunctionCallDelta:
+      // 🎯 Real-time function call parameter streaming (if needed for UX)
+      const funcDeltaData = event.data as { 
+        content: { functionCall: { name: string; args: string } } 
+      };
+      const funcDelta = funcDeltaData.content.functionCall;
+      console.log(`\n🔧 LLM preparing: ${funcDelta.name}...`);
+      break;
+      
+    // ❌ Don't handle corresponding Done events when using Delta events
+    // case AgentEventType.ResponseChunkTextDone:
+    // case AgentEventType.ResponseChunkFunctionCallDone:
+    //   // These would duplicate content from delta events
+    
+    case AgentEventType.ToolExecutionStart:
+      // ✅ Type-safe tool execution tracking
+      const toolStartData = event.data as {
+        toolName: string;
+        callId: string;
+        args: Record<string, unknown>;
+        sessionId: string;
+        turn: number;
+      };
+      console.log(`\n⚙️ Tool executing: ${toolStartData.toolName} (Turn ${toolStartData.turn})`);
+      break;
+      
+    case AgentEventType.ToolExecutionDone:
+      // ✅ Type-safe tool completion tracking
+      const toolDoneData = event.data as {
+        toolName: string;
+        callId: string;
+        result?: unknown;
+        error?: string;
+        duration?: number;
+        sessionId: string;
+        turn: number;
+      };
+      const status = toolDoneData.error ? '❌ Failed' : '✅ Completed';
+      console.log(`\n${status}: ${toolDoneData.toolName} (${toolDoneData.duration || 0}ms)`);
+      break;
+      
+    case AgentEventType.ResponseComplete:
+      // ✅ Final response with token usage
+      const completeData = event.data as { 
+        response_id: string; 
+        usage?: { totalTokens: number } 
+      };
+      console.log(`\n📊 Final response complete (${completeData.usage?.totalTokens || 0} tokens)`);
+      console.log(`Full response: ${assistantResponse}`);
+      break;
+      
+    case AgentEventType.Error:
+      // ✅ Handle streaming errors
+      const errorData = event.data as { 
+        message: string; 
+        timestamp: number; 
+        turn: number; 
+      };
+      console.error(`\n❌ Streaming error (Turn ${errorData.turn}): ${errorData.message}`);
+      break;
   }
 }
 ```
