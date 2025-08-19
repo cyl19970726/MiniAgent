@@ -3,7 +3,7 @@
 A platform-agnostic agent framework for building autonomous AI agents with tool execution capabilities.
 
 ## Install 
-npm install @continue-reasoning/mini-agent
+pnpm install @continue-reasoning/mini-agent
 
 ## Features
 
